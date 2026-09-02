@@ -34,6 +34,11 @@ export const StudentDashboard: React.FC = () => {
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
               <User className="w-3.5 h-3.5 text-sky-400" />
               <span>{user ? user.name : 'Student Account'}</span>
+              {user?.studentId && (
+                <span className="bg-sky-950 text-sky-400 border border-sky-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                  {user.studentId}
+                </span>
+              )}
             </div>
             <Link to="/student/exams">
               <Button size="sm" variant="outline" className="gap-1 text-xs">
@@ -51,9 +56,14 @@ export const StudentDashboard: React.FC = () => {
         {/* Welcome Banner */}
         <div className="glass-panel-glow border-sky-500/30 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="success" className="py-0.5">AUTHENTICATED CANDIDATE</Badge>
-              <span className="text-xs font-mono text-slate-400">INSTITUTION ENROLLED</span>
+              {user?.studentId && (
+                <Badge variant="glow" className="text-xs font-mono">{user.studentId}</Badge>
+              )}
+              <span className="text-xs font-mono text-slate-400">
+                {user?.university || user?.institution || 'INSTITUTION ENROLLED'}
+              </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
               Welcome Back, {user ? user.name : 'Student Candidate'}

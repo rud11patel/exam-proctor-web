@@ -21,12 +21,15 @@ async function seedDatabase() {
         role: 'STUDENT',
         roll: 'CS2026-089',
         dept: 'Computer Science',
+        university: 'MSU',
+        studentId: 'MSU-000001',
       },
       {
         name: 'Prof. David Miller',
         email: 'professor@university.edu',
         role: 'FACULTY',
         dept: 'Computer Science & AI',
+        university: 'MSU',
       },
       {
         name: 'Institutional Admin',
@@ -53,15 +56,24 @@ async function seedDatabase() {
 
         if (u.role === 'STUDENT') {
           await pool.query(
-            `INSERT INTO student_profiles (user_id, roll_number, department, course)
-             VALUES ($1, $2, $3, $4)`,
-            [userId, u.roll, u.dept, 'B.Tech CS']
+            `INSERT INTO student_profiles (user_id, roll_number, department, course, university, student_id)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [userId, u.roll, u.dept, 'B.Tech CS', u.university || null, u.studentId || null]
           );
+
+          if (u.university) {
+            await pool.query(
+              `INSERT INTO university_student_sequences (university_normalized, last_sequence_number, prefix)
+               VALUES ($1, 1, 'MSU')
+               ON CONFLICT (university_normalized) DO NOTHING`,
+              [u.university.trim().toLowerCase()]
+            );
+          }
         } else if (u.role === 'FACULTY') {
           await pool.query(
-            `INSERT INTO faculty_profiles (user_id, department)
-             VALUES ($1, $2)`,
-            [userId, u.dept]
+            `INSERT INTO faculty_profiles (user_id, department, university)
+             VALUES ($1, $2, $3)`,
+            [userId, u.dept, u.university || null]
           );
         }
         console.log(`✅ Seeded user: ${u.name} (${u.role})`);

@@ -10,10 +10,17 @@ export const userService = {
         name: u.name,
         email: u.email,
         role: 'student',
-        studentId: u.studentId || u.rollNumber || 'CS2026-089',
+        studentId: u.studentId || u.student_id || u.rollNumber || 'STU-000001',
         department: u.department,
+        university: u.university,
+        institution: u.university,
       }));
     }
+
+    if (res.error) {
+      throw new Error(res.error.message || 'Unable to load students. Please try again.');
+    }
+
     return [];
   },
 };

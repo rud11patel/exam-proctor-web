@@ -7,6 +7,7 @@ export interface User {
   role: UserRole;
   avatarUrl?: string;
   institution?: string;
+  university?: string;
   studentId?: string;
   department?: string;
   createdAt?: string;

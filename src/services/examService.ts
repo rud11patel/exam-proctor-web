@@ -77,6 +77,18 @@ export const examService = {
     throw new Error(res.error?.message || 'Failed to create exam');
   },
 
+  async deleteExam(examId: string): Promise<{ message: string; action?: string }> {
+    const res = await ApiClient.request<{ message: string; action?: string }>(`/exams/${examId}`, {
+      method: 'DELETE',
+    });
+
+    if (res.success && res.data) {
+      return res.data;
+    }
+
+    throw new Error(res.error?.message || 'Failed to delete examination');
+  },
+
   mapDbExamToUi(e: any): Exam {
     return {
       id: e.id,

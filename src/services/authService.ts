@@ -18,9 +18,10 @@ export const authService = {
         name: u.name,
         email: u.email,
         role: u.role.toLowerCase() as UserRole,
-        institution: 'State Technological University',
+        institution: u.university || u.institution || '',
+        university: u.university || u.institution || '',
         department: u.department,
-        studentId: u.rollNumber,
+        studentId: u.studentId || u.student_id || u.rollNumber,
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(userObj));
       return userObj;
@@ -46,9 +47,10 @@ export const authService = {
         name: u.name,
         email: u.email,
         role: u.role.toLowerCase() as UserRole,
-        institution: 'State Technological University',
+        institution: u.university || u.institution || '',
+        university: u.university || u.institution || '',
         department: u.department,
-        studentId: u.rollNumber,
+        studentId: u.studentId || u.student_id || u.rollNumber,
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(userObj));
       return userObj;
@@ -77,6 +79,8 @@ export const authService = {
         email: data.email,
         password: data.password || 'Password@123',
         role: data.role.toUpperCase(),
+        university: data.institution,
+        institution: data.institution,
       }),
     });
 
@@ -88,7 +92,10 @@ export const authService = {
         name: u.name,
         email: u.email,
         role: u.role.toLowerCase() as UserRole,
-        institution: data.institution || 'State Technological University',
+        institution: u.university || u.institution || data.institution || '',
+        university: u.university || u.institution || data.institution || '',
+        studentId: u.studentId || u.student_id || u.rollNumber,
+        department: u.department,
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(userObj));
       return userObj;

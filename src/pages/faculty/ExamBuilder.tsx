@@ -34,6 +34,7 @@ export const ExamBuilder: React.FC = () => {
   const [students, setStudents] = useState<User[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [loadingStudents, setLoadingStudents] = useState(true);
+  const [loadStudentsError, setLoadStudentsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Filters & Search State
@@ -67,6 +68,7 @@ export const ExamBuilder: React.FC = () => {
   // Fetch Candidates from Backend PostgreSQL
   const loadStudents = async () => {
     setLoadingStudents(true);
+    setLoadStudentsError(null);
     try {
       const sList = await userService.getStudents();
       setStudents(sList);
@@ -75,6 +77,7 @@ export const ExamBuilder: React.FC = () => {
       }
     } catch (err: any) {
       console.warn('Failed to load candidate students:', err.message);
+      setLoadStudentsError(err.message || 'Unable to load students. Please try again.');
     } finally {
       setLoadingStudents(false);
     }
@@ -386,11 +389,16 @@ export const ExamBuilder: React.FC = () => {
               <label className="font-mono text-slate-300 font-semibold mb-2 block">Assign to Enrolled Student Candidates:</label>
               {loadingStudents ? (
                 <div className="p-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-sky-400" /> Loading student roster...
+                  <RefreshCw className="w-4 h-4 animate-spin text-sky-400" /> Loading students...
+                </div>
+              ) : loadStudentsError ? (
+                <div className="p-4 bg-rose-950/40 border border-rose-800/60 rounded-xl text-rose-300 text-xs">
+                  <p className="font-semibold">Unable to load students.</p>
+                  <p className="text-rose-400/80 mt-0.5">Please try again.</p>
                 </div>
               ) : students.length === 0 ? (
                 <div className="p-4 bg-slate-900 rounded-xl text-slate-400 text-xs">
-                  No active student accounts found. All active students will be automatically assigned upon creation.
+                  No students from your university are available.
                 </div>
               ) : (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -417,8 +425,11 @@ export const ExamBuilder: React.FC = () => {
                             {student.name.charAt(0)}
                           </div>
                           <div>
-                            <div className="font-semibold text-white">{student.name}</div>
-                            <div className="font-mono text-[10px] text-slate-400">{student.email} • {student.studentId || 'CS2026-089'}</div>
+                            <div className="font-semibold text-white text-sm">{student.name}</div>
+                            <div className="font-mono text-xs font-semibold text-sky-400">ID: {student.studentId || 'N/A'}</div>
+                            <div className="font-mono text-[11px] text-slate-400">
+                              {student.university || student.institution || 'University'} • {student.email}
+                            </div>
                           </div>
                         </div>
                         {isAssigned && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}

@@ -6,7 +6,7 @@ import { ApiResponseBuilder } from '../utils/apiResponse';
 import { UserRole } from '../types/index';
 
 export async function register(req: Request, res: Response) {
-  const { name, email, password, role, rollNumber, department, course } = req.body;
+  const { name, email, password, role, rollNumber, department, course, university, institution } = req.body;
 
   if (!name || !email || !password) {
     return ApiResponseBuilder.error(res, 'Name, email, and password are required', 'VALIDATION_ERROR', 400);
@@ -29,6 +29,18 @@ export async function register(req: Request, res: Response) {
     return ApiResponseBuilder.error(res, 'An account with this email address already exists', 'DUPLICATE_EMAIL', 409);
   }
 
+  const universityVal = (university || institution || '').trim() || undefined;
+
+  // University is required for student accounts
+  if (normalizedRole === 'STUDENT' && !universityVal) {
+    return ApiResponseBuilder.error(
+      res,
+      'University is required for student registration',
+      'VALIDATION_ERROR',
+      400
+    );
+  }
+
   const passwordHash = await bcrypt.hash(password, 10);
   const userProfile = await UserRepository.createUserWithProfile({
     name,
@@ -38,6 +50,7 @@ export async function register(req: Request, res: Response) {
     rollNumber,
     department,
     course,
+    university: universityVal,
   });
 
   const token = generateToken({
@@ -55,9 +68,12 @@ export async function register(req: Request, res: Response) {
         email: userProfile.email,
         role: userProfile.role,
         status: userProfile.status,
+        studentId: userProfile.student_id || userProfile.roll_number,
         rollNumber: userProfile.roll_number,
         department: userProfile.department,
         course: userProfile.course,
+        university: userProfile.university,
+        institution: userProfile.university,
       },
       token,
     },
@@ -115,9 +131,12 @@ export async function login(req: Request, res: Response) {
       email: profile!.email,
       role: profile!.role,
       status: profile!.status,
+      studentId: profile!.student_id || profile!.roll_number,
       rollNumber: profile!.roll_number,
       department: profile!.department,
       course: profile!.course,
+      university: profile!.university,
+      institution: profile!.university,
     },
     token,
   });
@@ -138,9 +157,12 @@ export async function getCurrentUser(req: Request, res: Response) {
       email: profile!.email,
       role: profile!.role,
       status: profile!.status,
+      studentId: profile!.student_id || profile!.roll_number,
       rollNumber: profile!.roll_number,
       department: profile!.department,
       course: profile!.course,
+      university: profile!.university,
+      institution: profile!.university,
     },
   });
 }
