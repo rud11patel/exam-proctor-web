@@ -85,21 +85,27 @@ export class QuestionRepository {
     subject?: string;
     difficulty?: string;
     type?: string;
+    createdBy?: string;
   }): Promise<QuestionDb[]> {
     let query = `SELECT * FROM questions WHERE 1=1`;
     const params: any[] = [];
+
+    if (filters.createdBy) {
+      params.push(filters.createdBy);
+      query += ` AND created_by = $${params.length}`;
+    }
 
     if (filters.search) {
       params.push(`%${filters.search.toLowerCase()}%`);
       query += ` AND (LOWER(question_text) LIKE $${params.length} OR LOWER(subject) LIKE $${params.length})`;
     }
 
-    if (filters.subject && filters.subject !== 'ALL') {
+    if (filters.subject && filters.subject !== 'ALL' && filters.subject !== 'all') {
       params.push(filters.subject);
       query += ` AND subject = $${params.length}`;
     }
 
-    if (filters.difficulty && filters.difficulty !== 'ALL') {
+    if (filters.difficulty && filters.difficulty !== 'ALL' && filters.difficulty !== 'all') {
       params.push(filters.difficulty.toUpperCase());
       query += ` AND difficulty = $${params.length}`;
     }

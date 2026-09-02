@@ -1,6 +1,23 @@
 import { Exam } from '@/types';
 import { ApiClient } from './apiClient';
 
+export interface CreateExamParams {
+  title: string;
+  description?: string;
+  subject: string;
+  duration: number;
+  totalMarks?: number;
+  passingMarks?: number;
+  negativeMarking?: number;
+  randomizeQuestions?: boolean;
+  randomizeOptions?: boolean;
+  maxAttempts?: number;
+  questionIds: string[];
+  studentIds?: string[];
+  startTime?: string;
+  endTime?: string;
+}
+
 export const examService = {
   async getFacultyExams(): Promise<Exam[]> {
     const res = await ApiClient.request<{ exams: any[] }>('/exams');
@@ -32,7 +49,7 @@ export const examService = {
     return null;
   },
 
-  async createExam(data: Omit<Exam, 'id' | 'createdAt' | 'status'>): Promise<Exam> {
+  async createExam(data: CreateExamParams): Promise<Exam> {
     const res = await ApiClient.request<{ exam: any }>('/exams', {
       method: 'POST',
       body: JSON.stringify({
@@ -46,7 +63,10 @@ export const examService = {
         randomizeQuestions: data.randomizeQuestions,
         randomizeOptions: data.randomizeOptions,
         maximumAttempts: data.maxAttempts,
-        questionIds: data.questions.map((q) => q.id),
+        questionIds: data.questionIds,
+        studentIds: data.studentIds,
+        startTime: data.startTime,
+        endTime: data.endTime,
       }),
     });
 

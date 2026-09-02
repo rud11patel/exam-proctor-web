@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Filter, Trash2, Edit3, Eye, CheckCircle2, AlertCircle, ArrowLeft, BookOpen, Layers } from 'lucide-react';
+import { Plus, Search, Filter, Trash2, Eye, CheckCircle2, ArrowLeft, BookOpen, RefreshCw, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Question, QuestionType, QuestionDifficulty } from '@/types';
+import { Question } from '@/types';
 import { questionService } from '@/services/questionService';
 
 export const QuestionBank: React.FC = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('all');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<QuestionDifficulty | 'all'>('all');
-  const [selectedType, setSelectedType] = useState<QuestionType | 'all'>('all');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [isLoading, setIsLoading] = useState(true);
 
   // Modal states
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -22,94 +23,161 @@ export const QuestionBank: React.FC = () => {
 
   // Form states for Create Question
   const [qText, setQText] = useState('');
-  const [qType, setQType] = useState<QuestionType>('mcq_single');
-  const [qSubject, setQSubject] = useState('Data Structures & Algorithms');
+  const [qType, setQType] = useState<'mcq-single' | 'mcq-multiple' | 'true-false'>('mcq-single');
+  const [qSubject, setQSubject] = useState('Computer Science');
   const [qTopic, setQTopic] = useState('General');
-  const [qDifficulty, setQDifficulty] = useState<QuestionDifficulty>('medium');
-  const [qMarks, setQMarks] = useState(4);
+  const [qDifficulty, setQDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [qMarks, setQMarks] = useState<number | string>(4);
   const [qExplanation, setQExplanation] = useState('');
   const [options, setOptions] = useState<string[]>(['', '', '', '']);
-  const [correctOptionIdxs, setCorrectOptionIdxs] = useState<number[]>([0]);
+  const [correctOptionIdx, setCorrectOptionIdx] = useState<number | null>(0);
 
-  const loadAll = () => {
-    const list = questionService.filterQuestions(
-      searchQuery,
-      selectedSubject,
-      selectedDifficulty as QuestionDifficulty,
-      selectedType as QuestionType
-    );
-    setQuestions(list);
+  // Validation Error State
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const loadAll = async () => {
+    setIsLoading(true);
+    try {
+      const list = await questionService.getQuestions({
+        search: searchQuery,
+        subject: selectedSubject,
+        difficulty: selectedDifficulty,
+        type: selectedType,
+      });
+      setQuestions(list);
+    } catch (err: any) {
+      console.warn('Failed to load questions:', err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
     loadAll();
   }, [searchQuery, selectedSubject, selectedDifficulty, selectedType]);
 
-  const handleCreateQuestion = (e: React.FormEvent) => {
+  const handleCreateQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qText.trim()) return;
+    setFormError(null);
 
-    let parsedOptions: { id: string; text: string }[] = [];
-    let correctAnswers: string[] = [];
-
-    if (qType === 'true_false') {
-      parsedOptions = [
-        { id: 'opt-1', text: 'True' },
-        { id: 'opt-2', text: 'False' },
-      ];
-      correctAnswers = [correctOptionIdxs.includes(0) ? 'opt-1' : 'opt-2'];
-    } else {
-      parsedOptions = options.map((optText, idx) => ({
-        id: `opt-${idx + 1}`,
-        text: optText.trim() || `Option ${idx + 1}`,
-      }));
-      correctAnswers = correctOptionIdxs.map((idx) => `opt-${idx + 1}`);
+    // 1. Question text validation
+    if (!qText.trim()) {
+      setFormError('Question text is required.');
+      return;
     }
 
-    questionService.addQuestion({
-      text: qText,
-      type: qType,
-      options: parsedOptions,
-      correctAnswers,
-      marks: Number(qMarks),
-      explanation: qExplanation,
-      subject: qSubject,
-      topic: qTopic,
-      difficulty: qDifficulty,
-    });
+    // 2. Subject validation
+    if (!qSubject.trim()) {
+      setFormError('Subject is required.');
+      return;
+    }
 
-    setCreateModalOpen(false);
-    resetForm();
-    loadAll();
+    // 3. Marks validation
+    const numMarks = Number(qMarks);
+    if (isNaN(numMarks) || numMarks <= 0) {
+      setFormError('Marks must be greater than 0.');
+      return;
+    }
+
+    // 4. Options validation
+    let parsedOptions: { text: string; isCorrect: boolean }[] = [];
+
+    if (qType === 'true-false') {
+      if (correctOptionIdx === null) {
+        setFormError('Please select the correct answer.');
+        return;
+      }
+      parsedOptions = [
+        { text: 'True', isCorrect: correctOptionIdx === 0 },
+        { text: 'False', isCorrect: correctOptionIdx === 1 },
+      ];
+    } else {
+      const filledOptions = options.map((o) => o.trim());
+
+      // At least 2 options check
+      if (filledOptions.length < 2) {
+        setFormError('Please provide at least 2 options.');
+        return;
+      }
+
+      // No empty options check
+      for (let i = 0; i < filledOptions.length; i++) {
+        if (!filledOptions[i]) {
+          setFormError(`All options must contain text (Option ${String.fromCharCode(65 + i)} is empty).`);
+          return;
+        }
+      }
+
+      // Exactly ONE correct option check
+      if (correctOptionIdx === null || correctOptionIdx < 0 || correctOptionIdx >= filledOptions.length) {
+        setFormError('Please select the correct answer.');
+        return;
+      }
+
+      parsedOptions = filledOptions.map((optText, idx) => ({
+        text: optText,
+        isCorrect: idx === correctOptionIdx,
+      }));
+    }
+
+    try {
+      await questionService.createQuestion({
+        text: qText.trim(),
+        type: qType,
+        options: parsedOptions.map((o, idx) => ({ id: `opt-${idx + 1}`, text: o.text, isCorrect: o.isCorrect })),
+        marks: numMarks,
+        explanation: qExplanation.trim(),
+        subject: qSubject.trim(),
+        topic: qTopic.trim(),
+        difficulty: qDifficulty,
+      });
+
+      setCreateModalOpen(false);
+      resetForm();
+      loadAll();
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to create question.');
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this question?')) {
-      questionService.deleteQuestion(id);
-      loadAll();
+      try {
+        await questionService.deleteQuestion(id);
+        loadAll();
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete question');
+      }
     }
   };
 
   const resetForm = () => {
     setQText('');
-    setQType('mcq_single');
-    setQSubject('Data Structures & Algorithms');
+    setQType('mcq-single');
+    setQSubject('Computer Science');
     setQTopic('General');
     setQDifficulty('medium');
     setQMarks(4);
     setQExplanation('');
     setOptions(['', '', '', '']);
-    setCorrectOptionIdxs([0]);
+    setCorrectOptionIdx(0);
+    setFormError(null);
   };
 
-  const toggleOptionCorrect = (idx: number) => {
-    if (qType === 'mcq_single' || qType === 'true_false') {
-      setCorrectOptionIdxs([idx]);
-    } else {
-      if (correctOptionIdxs.includes(idx)) {
-        setCorrectOptionIdxs(correctOptionIdxs.filter((i) => i !== idx));
-      } else {
-        setCorrectOptionIdxs([...correctOptionIdxs, idx]);
+  const addOptionField = () => {
+    if (options.length < 6) {
+      setOptions([...options, '']);
+    }
+  };
+
+  const removeOptionField = (idx: number) => {
+    if (options.length > 2) {
+      const updated = options.filter((_, i) => i !== idx);
+      setOptions(updated);
+      if (correctOptionIdx === idx) {
+        setCorrectOptionIdx(0);
+      } else if (correctOptionIdx !== null && correctOptionIdx > idx) {
+        setCorrectOptionIdx(correctOptionIdx - 1);
       }
     }
   };
@@ -126,21 +194,25 @@ export const QuestionBank: React.FC = () => {
               </Button>
             </Link>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Institutional Question Bank</h1>
-          <p className="text-slate-400 text-xs sm:text-sm">Manage item bank questions, test cases, and difficulty classifications.</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">My Question Bank</h1>
+          <p className="text-slate-400 text-xs sm:text-sm">Manage item bank questions owned by your faculty account.</p>
         </div>
 
-        <Button variant="glow" onClick={() => setCreateModalOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Create New Question
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={loadAll} className="gap-1.5 text-xs">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Bank
+          </Button>
+          <Button variant="glow" onClick={() => { resetForm(); setCreateModalOpen(true); }} className="gap-2">
+            <Plus className="w-4 h-4" /> Create MCQ Question
+          </Button>
+        </div>
       </div>
 
       {/* Filter & Search Bar */}
       <div className="glass-panel p-4 rounded-2xl border-slate-800 flex flex-col md:flex-row items-center gap-4">
         <div className="w-full md:w-1/3">
           <Input
-            placeholder="Search questions by text or subject..."
+            placeholder="Search my questions..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search className="w-4 h-4 text-slate-400" />}
@@ -156,16 +228,16 @@ export const QuestionBank: React.FC = () => {
               className="bg-transparent text-slate-200 outline-none cursor-pointer"
             >
               <option value="all" className="bg-slate-900">All Subjects</option>
+              <option value="Computer Science" className="bg-slate-900">Computer Science</option>
               <option value="Data Structures & Algorithms" className="bg-slate-900">Data Structures</option>
-              <option value="Artificial Intelligence" className="bg-slate-900">Artificial Intelligence</option>
-              <option value="Mathematics" className="bg-slate-900">Mathematics</option>
+              <option value="Database Systems" className="bg-slate-900">Database Systems</option>
             </select>
           </div>
 
           <div className="flex items-center gap-1.5 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
             <select
               value={selectedDifficulty}
-              onChange={(e) => setSelectedDifficulty(e.target.value as any)}
+              onChange={(e) => setSelectedDifficulty(e.target.value)}
               className="bg-transparent text-slate-200 outline-none cursor-pointer"
             >
               <option value="all" className="bg-slate-900">All Difficulties</option>
@@ -174,29 +246,21 @@ export const QuestionBank: React.FC = () => {
               <option value="hard" className="bg-slate-900">Hard</option>
             </select>
           </div>
-
-          <div className="flex items-center gap-1.5 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
-            <select
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value as any)}
-              className="bg-transparent text-slate-200 outline-none cursor-pointer"
-            >
-              <option value="all" className="bg-slate-900">All Types</option>
-              <option value="mcq_single" className="bg-slate-900">Single Choice</option>
-              <option value="mcq_multiple" className="bg-slate-900">Multiple Select</option>
-              <option value="true_false" className="bg-slate-900">True/False</option>
-            </select>
-          </div>
         </div>
       </div>
 
       {/* Question Table / Cards */}
       <div className="space-y-3">
-        {questions.length === 0 ? (
+        {isLoading ? (
+          <div className="p-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+            <RefreshCw className="w-6 h-6 animate-spin text-sky-400" />
+            <span>Loading owned questions from database...</span>
+          </div>
+        ) : questions.length === 0 ? (
           <Card className="glass-card p-12 text-center text-slate-400 space-y-3">
             <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
             <h3 className="text-base font-bold text-white">No questions found</h3>
-            <p className="text-xs">Try adjusting search filters or create a new question.</p>
+            <p className="text-xs">Create your first MCQ question using the button above.</p>
           </Card>
         ) : (
           questions.map((q, idx) => (
@@ -219,13 +283,6 @@ export const QuestionBank: React.FC = () => {
                     >
                       {q.difficulty}
                     </Badge>
-                    <Badge variant="outline" className="text-[10px] font-mono text-slate-400">
-                      {q.type === 'mcq_single'
-                        ? 'MCQ Single'
-                        : q.type === 'mcq_multiple'
-                        ? 'MCQ Multi'
-                        : 'True/False'}
-                    </Badge>
                     <span className="text-xs font-mono text-sky-400">{q.marks} Marks</span>
                   </div>
 
@@ -233,7 +290,7 @@ export const QuestionBank: React.FC = () => {
 
                   <div className="text-xs text-slate-400">
                     <span className="font-semibold text-slate-300">Options: </span>
-                    {q.options.map((o) => o.text).join(' • ')}
+                    {(q.options || []).map((o, i) => `${String.fromCharCode(65 + i)}. ${o.text}${o.isCorrect ? ' (Correct)' : ''}`).join(' • ')}
                   </div>
                 </div>
 
@@ -273,19 +330,18 @@ export const QuestionBank: React.FC = () => {
               <h4 className="text-sm font-bold text-white">{previewQuestion.text}</h4>
 
               <div className="space-y-2">
-                {previewQuestion.options.map((opt) => {
-                  const isCorrect = previewQuestion.correctAnswers.includes(opt.id);
+                {(previewQuestion.options || []).map((opt, i) => {
                   return (
                     <div
                       key={opt.id}
                       className={`p-3 rounded-xl border flex items-center justify-between ${
-                        isCorrect
+                        opt.isCorrect
                           ? 'bg-emerald-950/40 border-emerald-500/80 text-emerald-300'
                           : 'bg-slate-900 border-slate-800 text-slate-300'
                       }`}
                     >
-                      <span>{opt.text}</span>
-                      {isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                      <span><strong className="mr-1">{String.fromCharCode(65 + i)}.</strong> {opt.text}</span>
+                      {opt.isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                     </div>
                   );
                 })}
@@ -306,29 +362,38 @@ export const QuestionBank: React.FC = () => {
       <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create New Question</DialogTitle>
-            <DialogDescription>Add a question to the institutional question bank.</DialogDescription>
+            <DialogTitle>Create MCQ Question</DialogTitle>
+            <DialogDescription>Add a new question to your faculty question bank.</DialogDescription>
           </DialogHeader>
+
+          {formError && (
+            <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-xl text-xs text-rose-200 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{formError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleCreateQuestion} className="space-y-4 text-xs pt-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="font-mono text-slate-300 font-semibold mb-1 block">Subject</label>
+                <label className="font-mono text-slate-300 font-semibold mb-1 block">Subject *</label>
                 <input
                   type="text"
                   value={qSubject}
                   onChange={(e) => setQSubject(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  placeholder="e.g. Computer Science"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="font-mono text-slate-300 font-semibold mb-1 block">Topic</label>
+                <label className="font-mono text-slate-300 font-semibold mb-1 block">Topic (Optional)</label>
                 <input
                   type="text"
                   value={qTopic}
                   onChange={(e) => setQTopic(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  placeholder="e.g. Algorithms"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                 />
               </div>
             </div>
@@ -339,14 +404,14 @@ export const QuestionBank: React.FC = () => {
                 <select
                   value={qType}
                   onChange={(e) => {
-                    setQType(e.target.value as QuestionType);
-                    setCorrectOptionIdxs([0]);
+                    const newType = e.target.value as any;
+                    setQType(newType);
+                    setCorrectOptionIdx(0);
                   }}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                 >
-                  <option value="mcq_single">MCQ Single Choice</option>
-                  <option value="mcq_multiple">MCQ Multiple Select</option>
-                  <option value="true_false">True / False</option>
+                  <option value="mcq-single">MCQ (Multiple Choice)</option>
+                  <option value="true-false">True / False</option>
                 </select>
               </div>
 
@@ -354,8 +419,8 @@ export const QuestionBank: React.FC = () => {
                 <label className="font-mono text-slate-300 font-semibold mb-1 block">Difficulty</label>
                 <select
                   value={qDifficulty}
-                  onChange={(e) => setQDifficulty(e.target.value as QuestionDifficulty)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  onChange={(e) => setQDifficulty(e.target.value as any)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                 >
                   <option value="easy">Easy</option>
                   <option value="medium">Medium</option>
@@ -364,81 +429,105 @@ export const QuestionBank: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-mono text-slate-300 font-semibold mb-1 block">Marks</label>
+                <label className="font-mono text-slate-300 font-semibold mb-1 block">Marks *</label>
                 <input
                   type="number"
                   min="1"
                   max="50"
                   value={qMarks}
-                  onChange={(e) => setQMarks(Number(e.target.value))}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  onChange={(e) => setQMarks(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="font-mono text-slate-300 font-semibold mb-1 block">Question Statement</label>
+              <label className="font-mono text-slate-300 font-semibold mb-1 block">Question Statement *</label>
               <textarea
                 value={qText}
                 onChange={(e) => setQText(e.target.value)}
-                placeholder="Enter detailed question text..."
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-white h-24"
+                placeholder="Enter detailed question statement..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-white h-24 outline-none"
                 required
               />
             </div>
 
             {/* Options configuration */}
-            {qType !== 'true_false' && (
-              <div className="space-y-2">
-                <label className="font-mono text-slate-300 font-semibold block">
-                  Options (Check the box next to correct answer(s)):
-                </label>
+            {qType !== 'true-false' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-mono text-slate-300 font-semibold block">
+                    Options (Select the radio button next to the correct answer) *
+                  </label>
+                  {options.length < 6 && (
+                    <button
+                      type="button"
+                      onClick={addOptionField}
+                      className="text-xs text-sky-400 hover:underline font-mono"
+                    >
+                      + Add Option
+                    </button>
+                  )}
+                </div>
+
                 {options.map((opt, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
+                  <div key={idx} className="flex items-center gap-3">
                     <input
-                      type={qType === 'mcq_single' ? 'radio' : 'checkbox'}
+                      type="radio"
                       name="correct_opt"
-                      checked={correctOptionIdxs.includes(idx)}
-                      onChange={() => toggleOptionCorrect(idx)}
-                      className="rounded accent-sky-500"
+                      checked={correctOptionIdx === idx}
+                      onChange={() => setCorrectOptionIdx(idx)}
+                      className="rounded-full accent-sky-500 cursor-pointer w-4 h-4"
                     />
+                    <span className="font-mono font-bold text-slate-400 w-4">
+                      {String.fromCharCode(65 + idx)}
+                    </span>
                     <input
                       type="text"
-                      placeholder={`Option ${idx + 1}`}
+                      placeholder={`Option ${String.fromCharCode(65 + idx)} text`}
                       value={opt}
                       onChange={(e) => {
-                        const newOpts = [...options];
-                        newOpts[idx] = e.target.value;
-                        setOptions(newOpts);
+                        const updated = [...options];
+                        updated[idx] = e.target.value;
+                        setOptions(updated);
                       }}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
                       required
                     />
+                    {options.length > 2 && (
+                      <button
+                        type="button"
+                        onClick={() => removeOptionField(idx)}
+                        className="text-slate-500 hover:text-rose-400 p-1"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {qType === 'true_false' && (
+            {qType === 'true-false' && (
               <div className="space-y-2">
-                <label className="font-mono text-slate-300 font-semibold block">Select Correct Answer:</label>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <label className="font-mono text-slate-300 font-semibold block">Select Correct Answer *</label>
+                <div className="flex items-center gap-6 p-3 bg-slate-900 rounded-xl border border-slate-800">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-200">
                     <input
                       type="radio"
                       name="tf_correct"
-                      checked={correctOptionIdxs.includes(0)}
-                      onChange={() => setCorrectOptionIdxs([0])}
+                      checked={correctOptionIdx === 0}
+                      onChange={() => setCorrectOptionIdx(0)}
                     />
                     <span>True</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-200">
                     <input
                       type="radio"
                       name="tf_correct"
-                      checked={correctOptionIdxs.includes(1)}
-                      onChange={() => setCorrectOptionIdxs([1])}
+                      checked={correctOptionIdx === 1}
+                      onChange={() => setCorrectOptionIdx(1)}
                     />
                     <span>False</span>
                   </label>
@@ -453,7 +542,7 @@ export const QuestionBank: React.FC = () => {
                 value={qExplanation}
                 onChange={(e) => setQExplanation(e.target.value)}
                 placeholder="Rationale for correct option..."
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white outline-none"
               />
             </div>
 

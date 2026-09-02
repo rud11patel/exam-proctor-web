@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShieldCheck, Mail, Lock, User, Building, ArrowRight, Video, Monitor } from 'lucide-react';
+import { ShieldCheck, Mail, Lock, User, Building, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 
 export const Register: React.FC = () => {
@@ -18,16 +17,17 @@ export const Register: React.FC = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setIsLoading(true);
 
     try {
       const role = accountType === 'candidate' ? 'student' : 'faculty';
-      register({
+      await register({
         name: fullName,
         email,
+        password,
         role,
         institution,
       });
@@ -173,7 +173,7 @@ export const Register: React.FC = () => {
 
           <div className="mt-6 text-center text-xs text-slate-400 border-t border-slate-800/80 pt-4">
             Already registered?{' '}
-            <Link to="/login" className="text-sky-400 font-semibold hover:underline">
+            <Link to="/register" className="text-sky-400 font-semibold hover:underline">
               Sign In
             </Link>
           </div>

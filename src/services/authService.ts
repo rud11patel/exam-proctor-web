@@ -3,47 +3,11 @@ import { ApiClient } from './apiClient';
 
 const SESSION_KEY = 'proctorai_session_user';
 
-// Default mock users for offline fallback if backend server is unreachable
-const MOCK_USERS: Record<string, User> = {
-  student: {
-    id: 'user-student-1',
-    name: 'Alex Rivera',
-    email: 'student@university.edu',
-    role: 'student',
-    studentId: 'CS2026-089',
-    institution: 'State Technological University',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    createdAt: new Date().toISOString(),
-  },
-  faculty: {
-    id: 'user-faculty-1',
-    name: 'Prof. David Miller',
-    email: 'professor@university.edu',
-    role: 'faculty',
-    department: 'Computer Science & AI',
-    institution: 'State Technological University',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    createdAt: new Date().toISOString(),
-  },
-  admin: {
-    id: 'user-admin-1',
-    name: 'Institutional Admin',
-    email: 'admin@university.edu',
-    role: 'admin',
-    department: 'Examination Controller Office',
-    institution: 'State Technological University',
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-    createdAt: new Date().toISOString(),
-  },
-};
-
 export const authService = {
   async getCurrentUser(): Promise<User | null> {
     const token = ApiClient.getToken();
     if (!token) {
-      // Offline local session check
-      const stored = localStorage.getItem(SESSION_KEY);
-      return stored ? JSON.parse(stored) : null;
+      return null;
     }
 
     const res = await ApiClient.request<{ user: any }>('/auth/me');
@@ -62,7 +26,7 @@ export const authService = {
       return userObj;
     }
 
-    // Token expired or invalid
+    // Token expired or server unreachable
     ApiClient.clearToken();
     localStorage.removeItem(SESSION_KEY);
     return null;
@@ -91,17 +55,8 @@ export const authService = {
     }
 
     if (res.error) {
-      // If backend network error, fallback to client session for offline demo
       if (res.error.code === 'NETWORK_ERROR') {
-        const mockUser = MOCK_USERS[role] || {
-          id: `user-${Date.now()}`,
-          name: email.split('@')[0],
-          email,
-          role,
-          institution: 'State Technological University',
-        };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(mockUser));
-        return mockUser;
+        throw new Error('Unable to connect to the backend server (http://localhost:5000). Please start the backend server.');
       }
       throw new Error(res.error.message);
     }
@@ -141,15 +96,7 @@ export const authService = {
 
     if (res.error) {
       if (res.error.code === 'NETWORK_ERROR') {
-        const mockUser: User = {
-          id: `user-${Date.now()}`,
-          name: data.name,
-          email: data.email,
-          role: data.role,
-          institution: data.institution || 'State Technological University',
-        };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(mockUser));
-        return mockUser;
+        throw new Error('Unable to connect to the backend server (http://localhost:5000). Please start the backend server.');
       }
       throw new Error(res.error.message);
     }

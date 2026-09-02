@@ -32,6 +32,20 @@ export async function updateProfile(req: Request, res: Response) {
   return ApiResponseBuilder.success(res, { user: updated });
 }
 
+export async function getStudents(req: Request, res: Response) {
+  const users = await UserRepository.getAllUsersWithProfiles('', 'STUDENT');
+  const sanitized = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: 'student',
+    studentId: u.roll_number || 'CS2026-089',
+    department: u.department,
+    course: u.course,
+  }));
+  return ApiResponseBuilder.success(res, { users: sanitized });
+}
+
 export async function getAdminUsers(req: Request, res: Response) {
   const { query, role } = req.query;
 

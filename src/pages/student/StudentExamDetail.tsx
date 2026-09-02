@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Clock, ShieldCheck, CheckCircle2, AlertTriangle, Play, FileText, Lock } from 'lucide-react';
+import { ArrowLeft, Clock, ShieldCheck, CheckCircle2, AlertTriangle, Play, FileText, Lock, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,37 +15,64 @@ export const StudentExamDetail: React.FC = () => {
   const { user } = useAuth();
 
   const [exam, setExam] = useState<Exam | undefined>(undefined);
-  const [eligibility, setEligibility] = useState<{ eligible: boolean; reason?: string }>({ eligible: false });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (examId && user) {
-      const e = examService.getExamById(examId);
-      setExam(e);
-      const status = examEngineService.checkEligibility(examId, user.id);
-      setEligibility(status);
+    const loadDetail = async () => {
+      if (!examId) return;
+      setIsLoading(true);
+      setErrorMsg(null);
+      try {
+        const e = await examService.getExamById(examId);
+        if (e) {
+          setExam(e);
+        } else {
+          setErrorMsg('Examination not found');
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Failed to retrieve exam details');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadDetail();
+  }, [examId]);
+
+  const handleStartExam = async () => {
+    if (!exam || !user) return;
+    setIsStarting(true);
+    setErrorMsg(null);
+
+    try {
+      const attemptId = await examEngineService.startExamAttempt(exam.id);
+      navigate(`/student/runner/${attemptId}`);
+    } catch (err: any) {
+      setIsStarting(false);
+      setErrorMsg(err.message || 'Failed to start examination attempt');
     }
-  }, [examId, user]);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-3">
+        <RefreshCw className="w-8 h-8 animate-spin text-sky-400" />
+        <span>Loading examination parameters...</span>
+      </div>
+    );
+  }
 
   if (!exam) {
     return (
       <div className="min-h-screen bg-slate-950 p-8 text-center text-slate-400 space-y-4">
-        <h2 className="text-xl text-white font-bold">Exam Not Found</h2>
+        <h2 className="text-xl text-white font-bold">{errorMsg || 'Exam Not Found'}</h2>
         <Link to="/student/exams">
           <Button variant="outline">Return to My Exams</Button>
         </Link>
       </div>
     );
   }
-
-  const handleStartExam = () => {
-    if (!user) return;
-    try {
-      const attempt = examEngineService.startAttempt(exam.id, user.id);
-      navigate(`/student/runner/${attempt.id}`);
-    } catch (err: any) {
-      alert(err.message || 'Failed to start exam');
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-8 space-y-6">
@@ -62,20 +89,26 @@ export const StudentExamDetail: React.FC = () => {
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-2">{exam.title}</h1>
       </div>
 
+      {errorMsg && (
+        <div className="p-4 bg-rose-950/80 border border-rose-500/50 rounded-xl text-xs text-rose-200">
+          {errorMsg}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Exam Specifications & Instructions */}
         <div className="lg:col-span-8 space-y-6">
           <Card className="glass-panel p-6 rounded-2xl border-slate-800 space-y-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <FileText className="w-5 h-5 text-sky-400" />
-              Assessment Overview & Syllabus
+              Assessment Overview & Instructions
             </h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{exam.description}</p>
+            <p className="text-sm text-slate-300 leading-relaxed">{exam.description || 'Complete all questions within the allocated timeframe.'}</p>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-900 rounded-xl border border-slate-800 font-mono text-xs">
               <div>
-                <span className="text-slate-500 block text-[10px]">TOTAL QUESTIONS</span>
-                <span className="text-white text-base font-bold">{exam.questionIds.length}</span>
+                <span className="text-slate-500 block text-[10px]">DURATION</span>
+                <span className="text-white text-base font-bold">{exam.duration} Mins</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">TOTAL MARKS</span>
@@ -100,7 +133,7 @@ export const StudentExamDetail: React.FC = () => {
             <ul className="space-y-2 text-xs text-slate-300">
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Answers auto-synchronize to backend servers continuously throughout the attempt.</span>
+                <span>Answers auto-synchronize to PostgreSQL database continuously during the attempt.</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -108,53 +141,32 @@ export const StudentExamDetail: React.FC = () => {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>You can flag questions for review and return to them anytime before final submission.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Once submitted, the attempt is locked and cannot be edited.</span>
+                <span>Once submitted, the attempt is locked and evaluated on the backend.</span>
               </li>
             </ul>
           </Card>
         </div>
 
-        {/* Start Launcher & Eligibility Panel */}
+        {/* Start Launcher Panel */}
         <div className="lg:col-span-4 space-y-6">
           <Card className="glass-panel-glow border-sky-500/40 p-6 rounded-2xl space-y-6">
             <div className="space-y-2">
               <div className="text-xs font-mono text-slate-400">TEST WINDOW STATUS</div>
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-sky-400" />
-                <span className="text-lg font-bold text-white">{exam.durationMinutes} Minutes</span>
-              </div>
-              <div className="text-xs text-slate-400 font-mono">
-                Start: {new Date(exam.startTime).toLocaleString()}
-                <br />
-                End: {new Date(exam.endTime).toLocaleString()}
+                <span className="text-lg font-bold text-white">{exam.duration} Minutes</span>
               </div>
             </div>
 
-            {eligibility.eligible ? (
-              <div className="space-y-3 pt-2">
-                <Badge variant="success" className="w-full justify-center py-1">
-                  ELIGIBILITY VERIFIED — READY TO START
-                </Badge>
-                <Button size="lg" variant="glow" onClick={handleStartExam} className="w-full justify-center gap-2">
-                  <Play className="w-4 h-4 fill-white" />
-                  Start Examination Now
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3 pt-2">
-                <div className="p-3 bg-rose-950/40 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{eligibility.reason}</span>
-                </div>
-                <Button size="lg" variant="secondary" disabled className="w-full justify-center">
-                  <Lock className="w-4 h-4 mr-2" /> Start Unavailable
-                </Button>
-              </div>
-            )}
+            <div className="space-y-3 pt-2">
+              <Badge variant="success" className="w-full justify-center py-1">
+                ELIGIBILITY VERIFIED — READY TO START
+              </Badge>
+              <Button size="lg" variant="glow" onClick={handleStartExam} isLoading={isStarting} className="w-full justify-center gap-2">
+                <Play className="w-4 h-4 fill-white" />
+                Start Examination Now
+              </Button>
+            </div>
           </Card>
         </div>
       </div>

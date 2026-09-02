@@ -103,14 +103,20 @@ export class ExamRepository {
   }
 
   static async getExamsForFaculty(facultyId?: string): Promise<ExamDb[]> {
-    const query = `
+    let query = `
       SELECT e.*,
              (SELECT COUNT(*) FROM exam_questions eq WHERE eq.exam_id = e.id) as total_questions,
              (SELECT COUNT(*) FROM exam_assignments ea WHERE ea.exam_id = e.id) as assigned_count
       FROM exams e
-      ORDER BY e.created_at DESC
     `;
-    const result = await pool.query<ExamDb>(query);
+    const params: any[] = [];
+    if (facultyId) {
+      params.push(facultyId);
+      query += ` WHERE e.created_by = $1`;
+    }
+    query += ` ORDER BY e.created_at DESC`;
+
+    const result = await pool.query<ExamDb>(query, params);
     return result.rows;
   }
 
