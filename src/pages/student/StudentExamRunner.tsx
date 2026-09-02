@@ -1,133 +1,171 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, ShieldCheck, CheckCircle2, Bookmark, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Send, RefreshCw, Lock } from 'lucide-react';
+import { Clock, ShieldCheck, CheckCircle2, Bookmark, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Send, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Exam, ExamAttempt, Question } from '@/types';
-import { examService } from '@/services/examService';
-import { questionService } from '@/services/questionService';
+import { ExamAttempt, Question, AnswerState } from '@/types';
 import { examEngineService } from '@/services/examEngineService';
 
 export const StudentExamRunner: React.FC = () => {
   const { attemptId } = useParams<{ attemptId: string }>();
   const navigate = useNavigate();
 
-  const [attempt, setAttempt] = useState<ExamAttempt | undefined>(undefined);
-  const [exam, setExam] = useState<Exam | undefined>(undefined);
+  const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [answersState, setAnswersState] = useState<Record<string, AnswerState>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Server-authoritative timer
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const [syncStatus, setSyncStatus] = useState<string>('Synchronized');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
 
-  useEffect(() => {
+  const loadAttemptState = async () => {
     if (!attemptId) return;
+    setIsLoading(true);
+    setErrorMsg(null);
 
-    const att = examEngineService.getAttemptById(attemptId);
-    if (!att) {
-      alert('Attempt not found');
-      navigate('/student/exams');
-      return;
+    try {
+      const data = await examEngineService.getAttemptState(attemptId);
+      setAttempt(data.attempt);
+      setQuestions(data.questions);
+      setAnswersState(data.answers);
+      setRemainingSeconds(data.remainingTimeSeconds);
+
+      if (data.attempt.status === 'submitted') {
+        navigate(`/student/results?attemptId=${data.attempt.id}`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Unable to retrieve exam attempt state from backend.');
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    if (att.status === 'submitted') {
-      navigate(`/student/results?attemptId=${att.id}`);
-      return;
-    }
-
-    setAttempt(att);
-    const ex = examService.getExamById(att.examId);
-    setExam(ex);
-
-    if (ex) {
-      const qList = ex.questionIds
-        .map((qId) => questionService.getQuestionById(qId))
-        .filter((q): q is Question => q !== undefined);
-      setQuestions(qList);
-    }
+  useEffect(() => {
+    loadAttemptState();
   }, [attemptId]);
 
-  // Server-authoritative timer countdown effect
+  // Server-authoritative timer countdown
   useEffect(() => {
-    if (!attemptId || !attempt || attempt.status !== 'in_progress') return;
+    if (!attempt || attempt.status !== 'in-progress' || remainingSeconds <= 0) return;
 
-    const updateTimer = () => {
-      const secs = examEngineService.getRemainingTimeSeconds(attemptId);
-      setRemainingSeconds(secs);
+    const timer = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleAutoSubmitOnExpire();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-      if (secs <= 0) {
-        alert('Server time expired! Your examination attempt has been automatically submitted.');
-        const finalAtt = examEngineService.submitExam(attemptId);
-        navigate(`/student/results?attemptId=${finalAtt.id}`);
-      }
-    };
+    return () => clearInterval(timer);
+  }, [attempt, remainingSeconds]);
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [attemptId, attempt]);
+  const handleAutoSubmitOnExpire = async () => {
+    if (!attemptId) return;
+    try {
+      await examEngineService.submitExamAttempt(attemptId);
+      navigate(`/student/results?attemptId=${attemptId}`);
+    } catch (err) {
+      // Navigate anyway if attempt expired
+      navigate(`/student/results?attemptId=${attemptId}`);
+    }
+  };
 
-  if (!attempt || !exam || questions.length === 0) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
-        <RefreshCw className="w-6 h-6 text-sky-400 animate-spin mr-2" /> Loading Secure Exam Engine...
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-3">
+        <RefreshCw className="w-8 h-8 text-sky-400 animate-spin" />
+        <span className="text-xs">Loading Secure Exam Runner from PostgreSQL...</span>
+      </div>
+    );
+  }
+
+  if (errorMsg || !attempt || questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-8 flex flex-col items-center justify-center text-center space-y-4">
+        <div className="p-4 bg-rose-950/80 border border-rose-500/50 rounded-xl text-xs text-rose-200 max-w-md">
+          {errorMsg || 'Examination attempt unavailable.'}
+        </div>
+        <Button variant="outline" onClick={() => navigate('/student/exams')}>
+          Return to My Exams
+        </Button>
       </div>
     );
   }
 
   const currentQ = questions[currentIndex];
-  const currentAnswerState = attempt.answers[currentQ.id] || {
+  const currentAnswer = answersState[currentQ.id] || {
     questionId: currentQ.id,
-    selectedOptionIds: [],
+    selectedOptions: [],
     isMarkedForReview: false,
     savedAt: new Date().toISOString(),
   };
 
   const handleOptionToggle = (optionId: string) => {
     let newSelected: string[];
-    if (currentQ.type === 'mcq_single' || currentQ.type === 'true_false') {
+    if (currentQ.type === 'mcq-single' || currentQ.type === 'true-false') {
       newSelected = [optionId];
     } else {
-      if (currentAnswerState.selectedOptionIds.includes(optionId)) {
-        newSelected = currentAnswerState.selectedOptionIds.filter((id) => id !== optionId);
+      if (currentAnswer.selectedOptions.includes(optionId)) {
+        newSelected = currentAnswer.selectedOptions.filter((id) => id !== optionId);
       } else {
-        newSelected = [...currentAnswerState.selectedOptionIds, optionId];
+        newSelected = [...currentAnswer.selectedOptions, optionId];
       }
     }
 
-    saveAnswerToBackend(newSelected, currentAnswerState.isMarkedForReview);
+    saveAnswerToBackend(newSelected, currentAnswer.isMarkedForReview);
   };
 
   const handleToggleMarkReview = () => {
-    saveAnswerToBackend(currentAnswerState.selectedOptionIds, !currentAnswerState.isMarkedForReview);
+    saveAnswerToBackend(currentAnswer.selectedOptions, !currentAnswer.isMarkedForReview);
   };
 
   const handleClearAnswer = () => {
-    saveAnswerToBackend([], currentAnswerState.isMarkedForReview);
+    saveAnswerToBackend([], currentAnswer.isMarkedForReview);
   };
 
-  const saveAnswerToBackend = (selectedIds: string[], isMarked: boolean) => {
+  const saveAnswerToBackend = async (selectedOptions: string[], isMarked: boolean) => {
     setSyncStatus('Syncing...');
+    // Optimistic UI update
+    setAnswersState((prev) => ({
+      ...prev,
+      [currentQ.id]: {
+        questionId: currentQ.id,
+        selectedOptions,
+        isMarkedForReview: isMarked,
+        savedAt: new Date().toISOString(),
+      },
+    }));
+
     try {
-      const updatedAtt = examEngineService.saveAnswer(attempt.id, currentQ.id, selectedIds, isMarked);
-      setAttempt({ ...updatedAtt });
-      setSyncStatus(`Saved at ${new Date().toLocaleTimeString()}`);
-    } catch (err: any) {
-      setSyncStatus('Sync Error');
+      await examEngineService.autoSaveAnswer(attempt.id, currentQ.id, selectedOptions, isMarked);
+      setSyncStatus(`Saved ${new Date().toLocaleTimeString()}`);
+    } catch (err) {
+      setSyncStatus('Sync Cached Offline');
     }
   };
 
-  const handleFinalSubmit = () => {
-    const finalAtt = examEngineService.submitExam(attempt.id);
-    setSubmitModalOpen(false);
-    navigate(`/student/results?attemptId=${finalAtt.id}`);
+  const handleFinalSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      await examEngineService.submitExamAttempt(attempt.id);
+      setSubmitModalOpen(false);
+      navigate(`/student/results?attemptId=${attempt.id}`);
+    } catch (err: any) {
+      setIsSubmitting(false);
+      alert(err.message || 'Failed to submit exam attempt');
+    }
   };
 
-  // Format timer HH:MM:SS
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -135,14 +173,14 @@ export const StudentExamRunner: React.FC = () => {
     return `${h > 0 ? String(h).padStart(2, '0') + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Statistics for question navigator
+  // Navigator statistics
   const totalCount = questions.length;
   let answeredCount = 0;
   let markedCount = 0;
 
   questions.forEach((q) => {
-    const ans = attempt.answers[q.id];
-    if (ans && ans.selectedOptionIds.length > 0) answeredCount++;
+    const ans = answersState[q.id];
+    if (ans && ans.selectedOptions && ans.selectedOptions.length > 0) answeredCount++;
     if (ans && ans.isMarkedForReview) markedCount++;
   });
 
@@ -159,9 +197,9 @@ export const StudentExamRunner: React.FC = () => {
             </div>
           </div>
           <div>
-            <h2 className="text-sm sm:text-base font-bold text-white leading-tight line-clamp-1">{exam.title}</h2>
+            <h2 className="text-sm sm:text-base font-bold text-white leading-tight line-clamp-1">Proctored Assessment</h2>
             <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-              <span>{exam.subject}</span>
+              <span>{currentQ.subject}</span>
               <span>•</span>
               <span className="text-emerald-400">{syncStatus}</span>
             </div>
@@ -195,7 +233,7 @@ export const StudentExamRunner: React.FC = () => {
             <div className="flex items-center justify-between pb-4 border-b border-slate-800">
               <div className="space-y-1">
                 <span className="text-xs font-mono text-sky-400 uppercase font-semibold">
-                  Question {currentIndex + 1} of {questions.length} • {currentQ.type === 'mcq_single' ? 'Single Choice' : currentQ.type === 'mcq_multiple' ? 'Multiple Select' : 'True / False'}
+                  Question {currentIndex + 1} of {questions.length} • {currentQ.type === 'mcq-single' ? 'Single Choice' : currentQ.type === 'mcq-multiple' ? 'Multiple Select' : 'True / False'}
                 </span>
                 <h3 className="text-lg font-bold text-white leading-relaxed">{currentQ.text}</h3>
               </div>
@@ -206,8 +244,8 @@ export const StudentExamRunner: React.FC = () => {
 
             {/* Answer Choice Options */}
             <div className="space-y-3">
-              {currentQ.options.map((option) => {
-                const isSelected = currentAnswerState.selectedOptionIds.includes(option.id);
+              {(currentQ.options || []).map((option) => {
+                const isSelected = currentAnswer.selectedOptions.includes(option.id);
                 return (
                   <div
                     key={option.id}
@@ -220,10 +258,10 @@ export const StudentExamRunner: React.FC = () => {
                   >
                     <div className="flex items-center gap-3">
                       <input
-                        type={currentQ.type === 'mcq_single' || currentQ.type === 'true_false' ? 'radio' : 'checkbox'}
+                        type={currentQ.type === 'mcq-single' || currentQ.type === 'true-false' ? 'radio' : 'checkbox'}
                         checked={isSelected}
                         onChange={() => {}}
-                        className="rounded accent-sky-500"
+                        className="rounded accent-sky-500 cursor-pointer"
                       />
                       <span className="text-sm font-medium">{option.text}</span>
                     </div>
@@ -238,12 +276,12 @@ export const StudentExamRunner: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  variant={currentAnswerState.isMarkedForReview ? 'glow' : 'outline'}
+                  variant={currentAnswer.isMarkedForReview ? 'glow' : 'outline'}
                   onClick={handleToggleMarkReview}
                   className="gap-1.5"
                 >
                   <Bookmark className="w-3.5 h-3.5" />
-                  {currentAnswerState.isMarkedForReview ? 'Marked for Review' : 'Mark for Review'}
+                  {currentAnswer.isMarkedForReview ? 'Marked for Review' : 'Mark for Review'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={handleClearAnswer} className="gap-1 text-slate-400">
                   <RotateCcw className="w-3.5 h-3.5" /> Clear Answer
@@ -284,8 +322,8 @@ export const StudentExamRunner: React.FC = () => {
             {/* Grid of Question Numbers */}
             <div className="grid grid-cols-5 gap-2">
               {questions.map((q, idx) => {
-                const ans = attempt.answers[q.id];
-                const isAns = ans && ans.selectedOptionIds.length > 0;
+                const ans = answersState[q.id];
+                const isAns = ans && ans.selectedOptions && ans.selectedOptions.length > 0;
                 const isMarked = ans && ans.isMarkedForReview;
                 const isCurrent = idx === currentIndex;
 
@@ -370,7 +408,7 @@ export const StudentExamRunner: React.FC = () => {
             <Button variant="outline" onClick={() => setSubmitModalOpen(false)}>
               Continue Exam
             </Button>
-            <Button variant="glow" onClick={handleFinalSubmit}>
+            <Button variant="glow" onClick={handleFinalSubmit} isLoading={isSubmitting}>
               Submit & Lock Attempt
             </Button>
           </DialogFooter>

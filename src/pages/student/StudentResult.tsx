@@ -1,34 +1,60 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Award, CheckCircle2, XCircle, Clock, ArrowLeft, BookOpen, AlertCircle } from 'lucide-react';
+import { Award, CheckCircle2, XCircle, Clock, ArrowLeft, BookOpen, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ExamAttempt, Exam } from '@/types';
-import { examEngineService } from '@/services/examEngineService';
-import { examService } from '@/services/examService';
+import { ExamResult } from '@/types';
+import { resultService } from '@/services/resultService';
 
 export const StudentResult: React.FC = () => {
   const [searchParams] = useSearchParams();
   const attemptId = searchParams.get('attemptId');
 
-  const [attempt, setAttempt] = useState<ExamAttempt | undefined>(undefined);
-  const [exam, setExam] = useState<Exam | undefined>(undefined);
+  const [result, setResult] = useState<ExamResult | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (attemptId) {
-      const att = examEngineService.getAttemptById(attemptId);
-      setAttempt(att);
-      if (att) {
-        setExam(examService.getExamById(att.examId));
+    const loadResult = async () => {
+      if (!attemptId) {
+        setIsLoading(false);
+        setErrorMsg('Attempt ID missing');
+        return;
       }
-    }
+
+      setIsLoading(true);
+      setErrorMsg(null);
+      try {
+        const res = await resultService.getAttemptResult(attemptId);
+        if (res) {
+          setResult(res);
+        } else {
+          setErrorMsg('Result record not found on backend database');
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Failed to retrieve result from backend database');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadResult();
   }, [attemptId]);
 
-  if (!attempt || !exam) {
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-8 flex flex-col items-center justify-center text-slate-400 text-xs gap-3">
+        <RefreshCw className="w-8 h-8 text-sky-400 animate-spin" />
+        <span>Evaluating examination result from backend database...</span>
+      </div>
+    );
+  }
+
+  if (errorMsg || !result) {
     return (
       <div className="min-h-screen bg-slate-950 p-8 text-center text-slate-400 space-y-4">
-        <h2 className="text-xl text-white font-bold">Result Record Not Found</h2>
+        <h2 className="text-xl text-white font-bold">{errorMsg || 'Result Record Not Found'}</h2>
         <Link to="/student/exams">
           <Button variant="outline">Return to My Exams</Button>
         </Link>
@@ -45,18 +71,16 @@ export const StudentResult: React.FC = () => {
           </Button>
         </Link>
         <div className="flex items-center gap-3">
-          <Badge variant="glow">{exam.subject}</Badge>
-          <Badge variant={exam.resultsPublished ? 'success' : 'secondary'}>
-            {exam.resultsPublished ? 'OFFICIAL RESULT RELEASED' : 'PENDING FACULTY AUDIT'}
-          </Badge>
+          <Badge variant="glow">OFFICIAL ASSESSMENT REPORT</Badge>
+          <Badge variant="success">CONFIRMED EVALUATION</Badge>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-2">{exam.title}</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white mt-2">{result.examTitle || 'Proctored Examination'}</h1>
       </div>
 
       {/* Main Score Banner */}
       <Card className="glass-panel-glow border-sky-500/40 p-8 rounded-3xl text-center space-y-4 max-w-3xl mx-auto">
         <div className="inline-flex p-4 rounded-full bg-slate-900 border border-slate-800">
-          {attempt.isPassed ? (
+          {result.isPassed ? (
             <Award className="w-12 h-12 text-emerald-400 animate-bounce" />
           ) : (
             <XCircle className="w-12 h-12 text-rose-400" />
@@ -64,17 +88,17 @@ export const StudentResult: React.FC = () => {
         </div>
 
         <div>
-          <span className="text-xs font-mono text-slate-400 uppercase">FINAL SCORE</span>
+          <span className="text-xs font-mono text-slate-400 uppercase">FINAL EVALUATED SCORE</span>
           <div className="text-5xl font-extrabold text-white mt-1">
-            {attempt.totalScore} <span className="text-2xl text-slate-400">/ {exam.totalMarks}</span>
+            {result.totalScore} <span className="text-2xl text-slate-400">/ {result.maxScore}</span>
           </div>
         </div>
 
         <div className="flex items-center justify-center gap-3">
           <Badge variant="glow" className="text-sm px-3 py-1 font-mono">
-            {attempt.percentage}% PERCENTAGE
+            {result.percentage}% PERCENTAGE
           </Badge>
-          {attempt.isPassed ? (
+          {result.isPassed ? (
             <Badge variant="success" className="text-sm px-3 py-1 font-mono">
               PASSED
             </Badge>
@@ -86,7 +110,7 @@ export const StudentResult: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-400 font-mono pt-2">
-          Submitted At: {attempt.submittedAt ? new Date(attempt.submittedAt).toLocaleString() : 'N/A'}
+          Calculated At: {result.submittedAt ? new Date(result.submittedAt).toLocaleString() : 'N/A'}
         </p>
       </Card>
 
@@ -94,17 +118,17 @@ export const StudentResult: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto font-mono text-xs">
         <Card className="glass-card p-4 rounded-2xl text-center space-y-1">
           <span className="text-slate-400">CORRECT ANSWERS</span>
-          <div className="text-2xl font-bold text-emerald-400">{attempt.correctCount ?? 0}</div>
+          <div className="text-2xl font-bold text-emerald-400">{result.correctAnswers ?? 0}</div>
         </Card>
 
         <Card className="glass-card p-4 rounded-2xl text-center space-y-1">
           <span className="text-slate-400">INCORRECT ANSWERS</span>
-          <div className="text-2xl font-bold text-rose-400">{attempt.incorrectCount ?? 0}</div>
+          <div className="text-2xl font-bold text-rose-400">{result.incorrectAnswers ?? 0}</div>
         </Card>
 
         <Card className="glass-card p-4 rounded-2xl text-center space-y-1">
           <span className="text-slate-400">UNANSWERED</span>
-          <div className="text-2xl font-bold text-amber-400">{attempt.unansweredCount ?? 0}</div>
+          <div className="text-2xl font-bold text-amber-400">{result.unanswered ?? 0}</div>
         </Card>
       </div>
 

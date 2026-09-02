@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, BookOpen, Clock, Calendar, CheckCircle2, Video, AlertCircle, ArrowLeft, Play, User, Award, LogOut } from 'lucide-react';
+import { ShieldCheck, BookOpen, CheckCircle2, Play, User, Award, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +33,7 @@ export const StudentDashboard: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
               <User className="w-3.5 h-3.5 text-sky-400" />
-              <span>{user ? user.name : 'Alex Rivera'}</span>
+              <span>{user ? user.name : 'Student Account'}</span>
             </div>
             <Link to="/student/exams">
               <Button size="sm" variant="outline" className="gap-1 text-xs">
@@ -56,7 +56,7 @@ export const StudentDashboard: React.FC = () => {
               <span className="text-xs font-mono text-slate-400">INSTITUTION ENROLLED</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-              Welcome Back, {user ? user.name : 'Alex Rivera'}
+              Welcome Back, {user ? user.name : 'Student Candidate'}
             </h1>
             <p className="text-slate-300 text-sm max-w-xl">
               Access active examination windows, check system readiness, and inspect evaluated score reports.
@@ -92,7 +92,7 @@ export const StudentDashboard: React.FC = () => {
           <Card className="glass-card p-6 rounded-2xl space-y-2">
             <CheckCircle2 className="w-6 h-6 text-cyan-400" />
             <h3 className="font-bold text-white text-base">System Readiness Diagnostics</h3>
-            <p className="text-xs text-slate-400">Hardware verification: Webcam 1080p OK, Mic Calibrated, Kiosk Mode Enforced.</p>
+            <p className="text-xs text-slate-400">Hardware verification: Camera OK, Mic Calibrated, Browser Compatible.</p>
           </Card>
         </div>
       </main>
