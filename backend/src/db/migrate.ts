@@ -19,6 +19,7 @@ async function runMigrations() {
       '001_initial_schema.sql',
       '002_exams_schema.sql',
       '003_results_analytics_schema.sql',
+      '004_proctoring_events_schema.sql',
     ];
 
     for (const file of migrations) {

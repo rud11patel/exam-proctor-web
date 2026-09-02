@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ExamRepository } from '../repositories/examRepository';
 import { AttemptRepository } from '../repositories/attemptRepository';
+import { ProctoringRepository } from '../repositories/proctoringRepository';
 import { ApiResponseBuilder } from '../utils/apiResponse';
 
 export async function getStudentExams(req: Request, res: Response) {
@@ -43,7 +44,6 @@ export async function getAttemptState(req: Request, res: Response) {
     }
 
     // CANDIDATE OWNERSHIP SECURITY RULE:
-    // Students can ONLY access their OWN attempt. Faculty/Admin can view any attempt.
     if (user.role === 'STUDENT' && attempt.student_id !== user.id) {
       return ApiResponseBuilder.error(res, 'You are not authorized to view this exam attempt', 'FORBIDDEN', 403);
     }
@@ -101,5 +101,32 @@ export async function submitAttempt(req: Request, res: Response) {
     return ApiResponseBuilder.success(res, { result });
   } catch (error: any) {
     return ApiResponseBuilder.error(res, error.message || 'Failed to submit exam attempt', 'SUBMISSION_ERROR', 400);
+  }
+}
+
+export async function recordProctoringEvent(req: Request, res: Response) {
+  const { id: attemptId } = req.params;
+  const { eventType, metadata } = req.body;
+  const user = req.user!;
+
+  if (!eventType) {
+    return ApiResponseBuilder.error(res, 'eventType is required', 'VALIDATION_ERROR', 400);
+  }
+
+  try {
+    const attempt = await AttemptRepository.getAttemptById(attemptId);
+    if (!attempt) {
+      return ApiResponseBuilder.error(res, 'Attempt not found', 'NOT_FOUND', 404);
+    }
+
+    // CANDIDATE OWNERSHIP SECURITY RULE:
+    if (user.role === 'STUDENT' && attempt.student_id !== user.id) {
+      return ApiResponseBuilder.error(res, 'You are not authorized to log proctoring events for this attempt', 'FORBIDDEN', 403);
+    }
+
+    const event = await ProctoringRepository.recordEvent(attemptId, user.id, eventType, metadata);
+    return ApiResponseBuilder.success(res, { event }, 201);
+  } catch (error: any) {
+    return ApiResponseBuilder.error(res, error.message || 'Failed to record proctoring event', 'PROCTORING_ERROR', 400);
   }
 }

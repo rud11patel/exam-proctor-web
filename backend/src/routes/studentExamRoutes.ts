@@ -6,6 +6,7 @@ import {
   getAttemptState,
   saveAnswer,
   submitAttempt,
+  recordProctoringEvent,
 } from '../controllers/studentExamController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
@@ -22,5 +23,8 @@ router.post('/student/exams/:id/start', requireRole('STUDENT'), startAttempt);
 router.get('/attempts/:id', getAttemptState);
 router.put('/attempts/:id/answers', requireRole('STUDENT'), saveAnswer);
 router.post('/attempts/:id/submit', requireRole('STUDENT'), submitAttempt);
+
+// Browser Proctoring Events endpoint
+router.post('/attempts/:id/proctoring-events', requireRole('STUDENT'), recordProctoringEvent);
 
 export default router;

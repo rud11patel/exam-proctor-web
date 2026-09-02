@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, ShieldCheck, CheckCircle2, Bookmark, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Send, RefreshCw } from 'lucide-react';
+import { Clock, ShieldCheck, CheckCircle2, Bookmark, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Send, RefreshCw, Maximize, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ExamAttempt, Question, AnswerState } from '@/types';
 import { examEngineService } from '@/services/examEngineService';
+import { useBrowserProctoring } from '@/hooks/useBrowserProctoring';
 
 export const StudentExamRunner: React.FC = () => {
   const { attemptId } = useParams<{ attemptId: string }>();
@@ -24,6 +25,12 @@ export const StudentExamRunner: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+
+  // BROWSER PROCTORING HOOK: Active strictly during in-progress attempt
+  const { tabSwitchCount, isFullscreen, latestWarning, requestFullscreen } = useBrowserProctoring({
+    attemptId: attempt?.id,
+    isActive: attempt?.status === 'in-progress',
+  });
 
   const loadAttemptState = async () => {
     if (!attemptId) return;
@@ -75,7 +82,6 @@ export const StudentExamRunner: React.FC = () => {
       await examEngineService.submitExamAttempt(attemptId);
       navigate(`/student/results?attemptId=${attemptId}`);
     } catch (err) {
-      // Navigate anyway if attempt expired
       navigate(`/student/results?attemptId=${attemptId}`);
     }
   };
@@ -135,7 +141,6 @@ export const StudentExamRunner: React.FC = () => {
 
   const saveAnswerToBackend = async (selectedOptions: string[], isMarked: boolean) => {
     setSyncStatus('Syncing...');
-    // Optimistic UI update
     setAnswersState((prev) => ({
       ...prev,
       [currentQ.id]: {
@@ -187,7 +192,7 @@ export const StudentExamRunner: React.FC = () => {
   const unansweredCount = totalCount - answeredCount;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white select-none">
       {/* Top Header Bar */}
       <header className="bg-slate-950 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -206,7 +211,21 @@ export const StudentExamRunner: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* Tab Switch Counter Badge */}
+          {tabSwitchCount > 0 && (
+            <Badge variant="destructive" className="font-mono text-xs animate-pulse">
+              Tab Switches: {tabSwitchCount}
+            </Badge>
+          )}
+
+          {/* Fullscreen Mode Launcher Button */}
+          {!isFullscreen && (
+            <Button size="sm" variant="outline" onClick={requestFullscreen} className="gap-1.5 text-xs">
+              <Maximize className="w-3.5 h-3.5 text-sky-400" /> Enter Fullscreen
+            </Button>
+          )}
+
           {/* Timer Display */}
           <div
             className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border font-mono font-bold text-sm ${
@@ -224,6 +243,14 @@ export const StudentExamRunner: React.FC = () => {
           </Button>
         </div>
       </header>
+
+      {/* Warning Alert Banner for Browser Proctoring Violations */}
+      {latestWarning && (
+        <div className="bg-amber-950/80 border-b border-amber-500/50 px-4 py-2 text-xs text-amber-200 flex items-center justify-center gap-2 animate-bounce">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span className="font-semibold">{latestWarning}</span>
+        </div>
+      )}
 
       {/* Main Body */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
