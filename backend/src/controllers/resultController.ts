@@ -8,6 +8,13 @@ export async function getStudentResults(req: Request, res: Response) {
   return ApiResponseBuilder.success(res, { results });
 }
 
+export async function getStudentExamAttempts(req: Request, res: Response) {
+  const { id: examId } = req.params;
+  const studentId = req.user!.id;
+  const attempts = await ResultRepository.getStudentExamAttempts(examId, studentId);
+  return ApiResponseBuilder.success(res, { attempts });
+}
+
 export async function getFacultyExamResults(req: Request, res: Response) {
   const { id: examId } = req.params;
   const results = await ResultRepository.getFacultyExamResults(examId);

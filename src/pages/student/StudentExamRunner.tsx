@@ -25,11 +25,18 @@ export const StudentExamRunner: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [autoSubmittedState, setAutoSubmittedState] = useState(false);
 
   // BROWSER PROCTORING HOOK: Active strictly during in-progress attempt
-  const { tabSwitchCount, isFullscreen, latestWarning, requestFullscreen } = useBrowserProctoring({
+  const { tabSwitchCount, isFullscreen, activeViolations, dismissViolation, requestFullscreen, violationCount, maxViolations } = useBrowserProctoring({
     attemptId: attempt?.id,
-    isActive: attempt?.status === 'in-progress',
+    isActive: attempt?.status === 'in-progress' && !autoSubmittedState,
+    onAutoSubmit: () => {
+      setAutoSubmittedState(true);
+      setTimeout(() => {
+        navigate(`/student/results?attemptId=${attempt?.id}`);
+      }, 5000);
+    }
   });
 
   const loadAttemptState = async () => {
@@ -98,9 +105,8 @@ export const StudentExamRunner: React.FC = () => {
   if (errorMsg || !attempt || questions.length === 0) {
     return (
       <div className="min-h-screen bg-slate-950 p-8 flex flex-col items-center justify-center text-center space-y-4">
-        <div className="p-4 bg-rose-950/80 border border-rose-500/50 rounded-xl text-xs text-rose-200 max-w-md">
-          {errorMsg || 'Examination attempt unavailable.'}
-        </div>
+        <AlertTriangle className="w-12 h-12 text-rose-400" />
+        <h2 className="text-xl text-white font-bold">{errorMsg || 'Active Examination Not Found'}</h2>
         <Button variant="outline" onClick={() => navigate('/student/exams')}>
           Return to My Exams
         </Button>
@@ -113,15 +119,17 @@ export const StudentExamRunner: React.FC = () => {
     questionId: currentQ.id,
     selectedOptions: [],
     isMarkedForReview: false,
-    savedAt: new Date().toISOString(),
+    savedAt: '',
   };
 
   const handleOptionToggle = (optionId: string) => {
-    let newSelected: string[];
+    let newSelected: string[] = [];
+
     if (currentQ.type === 'mcq-single' || currentQ.type === 'true-false') {
       newSelected = [optionId];
     } else {
-      if (currentAnswer.selectedOptions.includes(optionId)) {
+      const exists = currentAnswer.selectedOptions.includes(optionId);
+      if (exists) {
         newSelected = currentAnswer.selectedOptions.filter((id) => id !== optionId);
       } else {
         newSelected = [...currentAnswer.selectedOptions, optionId];
@@ -193,6 +201,49 @@ export const StudentExamRunner: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white select-none">
+      {/* Fullscreen Enforced Blocking Overlay */}
+      {!isFullscreen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center space-y-4 animate-in fade-in duration-200">
+          <div className="w-16 h-16 rounded-2xl bg-rose-950/80 border border-rose-500/50 flex items-center justify-center text-rose-400 animate-pulse">
+            <Maximize className="w-8 h-8" />
+          </div>
+          <div className="space-y-2 max-w-md">
+            <h2 className="text-2xl font-bold text-white">Fullscreen Mode Required</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Assessment interaction is temporarily paused because browser fullscreen mode was exited. Fullscreen mode is strictly required throughout this proctored examination.
+            </p>
+          </div>
+          <Button size="lg" variant="glow" onClick={requestFullscreen} className="gap-2 font-semibold">
+            <Maximize className="w-4 h-4" /> Return to Fullscreen
+          </Button>
+        </div>
+      )}
+
+      {/* Floating Temporary Violation Toasts (~7s Lifespan, Auto-Dismissed) */}
+      <div className="fixed top-16 right-6 z-50 flex flex-col gap-2 max-w-sm pointer-events-auto">
+        {activeViolations.map((v) => (
+          <div
+            key={v.id}
+            className="bg-amber-950/90 border border-amber-500/80 rounded-xl p-3 shadow-2xl backdrop-blur-md text-xs text-amber-200 flex items-start justify-between gap-2.5 animate-in slide-in-from-top-2 fade-in duration-200"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-white block">{v.eventType.replace('_', ' ')}</span>
+                <span className="text-amber-200/90 leading-tight">{v.message}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => dismissViolation(v.id)}
+              className="text-amber-400/60 hover:text-white text-xs font-mono ml-2 shrink-0"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Top Header Bar */}
       <header className="bg-slate-950 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -208,6 +259,19 @@ export const StudentExamRunner: React.FC = () => {
               <span>•</span>
               <span className="text-emerald-400">{syncStatus}</span>
             </div>
+            
+            <div className="flex gap-4 mb-4 items-center flex-wrap">
+              <Badge variant="outline" className={`py-1.5 px-3 rounded-md text-xs font-medium border ${violationCount >= maxViolations ? 'bg-rose-950/40 text-rose-400 border-rose-900/50' : violationCount > 0 ? 'bg-amber-950/40 text-amber-400 border-amber-900/50' : 'bg-slate-900/50 text-slate-300 border-slate-800'}`}>
+                <AlertTriangle className="w-3.5 h-3.5 mr-2" />
+                Violations: {violationCount} / {maxViolations}
+              </Badge>
+              {tabSwitchCount > 0 && (
+                <Badge variant="outline" className="bg-amber-950/40 text-amber-400 border-amber-900/50 py-1.5 px-3 rounded-md text-xs font-medium">
+                  <AlertTriangle className="w-3.5 h-3.5 mr-2" />
+                  Tab Switches: {tabSwitchCount}
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
 
@@ -219,10 +283,10 @@ export const StudentExamRunner: React.FC = () => {
             </Badge>
           )}
 
-          {/* Fullscreen Mode Launcher Button */}
+          {/* Fullscreen Mode Indicator / Toggle */}
           {!isFullscreen && (
-            <Button size="sm" variant="outline" onClick={requestFullscreen} className="gap-1.5 text-xs">
-              <Maximize className="w-3.5 h-3.5 text-sky-400" /> Enter Fullscreen
+            <Button size="sm" variant="outline" onClick={requestFullscreen} className="gap-1.5 text-xs border-amber-500/50 text-amber-400">
+              <Maximize className="w-3.5 h-3.5" /> Enter Fullscreen
             </Button>
           )}
 
@@ -243,14 +307,6 @@ export const StudentExamRunner: React.FC = () => {
           </Button>
         </div>
       </header>
-
-      {/* Warning Alert Banner for Browser Proctoring Violations */}
-      {latestWarning && (
-        <div className="bg-amber-950/80 border-b border-amber-500/50 px-4 py-2 text-xs text-amber-200 flex items-center justify-center gap-2 animate-bounce">
-          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="font-semibold">{latestWarning}</span>
-        </div>
-      )}
 
       {/* Main Body */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -403,6 +459,24 @@ export const StudentExamRunner: React.FC = () => {
           </Card>
         </div>
       </div>
+
+      {/* Auto Submit Overlay */}
+      {autoSubmittedState && (
+        <div className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4">
+          <Card className="max-w-md w-full bg-slate-900 border-rose-900/50 p-6 flex flex-col items-center text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-2">
+              <AlertTriangle className="w-8 h-8 text-rose-500" />
+            </div>
+            <h2 className="text-xl font-semibold text-rose-400">Maximum Violations Reached</h2>
+            <p className="text-sm text-slate-300">
+              You have reached the maximum allowed violations ({maxViolations}). Your examination has been automatically submitted.
+            </p>
+            <p className="text-xs text-slate-500 mt-2">
+              Redirecting to results in a few seconds...
+            </p>
+          </Card>
+        </div>
+      )}
 
       {/* Confirmation Submission Modal Dialog */}
       <Dialog open={submitModalOpen} onOpenChange={setSubmitModalOpen}>

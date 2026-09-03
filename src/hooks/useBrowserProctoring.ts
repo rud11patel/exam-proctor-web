@@ -11,21 +11,33 @@ export type ProctoringEventType =
   | 'RESTRICTED_SHORTCUT'
   | 'FULLSCREEN_EXIT';
 
+export interface ActiveViolationToast {
+  id: string;
+  eventType: ProctoringEventType;
+  message: string;
+  timestamp: number;
+}
+
 interface UseBrowserProctoringOptions {
   attemptId?: string;
   isActive: boolean;
   onViolation?: (eventType: ProctoringEventType, message: string) => void;
+  onAutoSubmit?: () => void;
 }
 
-export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBrowserProctoringOptions) {
+export function useBrowserProctoring({ attemptId, isActive, onViolation, onAutoSubmit }: UseBrowserProctoringOptions) {
+  const [violationCount, setViolationCount] = useState<number>(0);
+  const [maxViolations, setMaxViolations] = useState<number>(5);
   const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [latestWarning, setLatestWarning] = useState<string | null>(null);
+  const [activeViolations, setActiveViolations] = useState<ActiveViolationToast[]>([]);
 
   const lastEventTimeRef = useRef<Record<string, number>>({});
   const wasFullscreenRef = useRef<boolean>(false);
+  const toastTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
 
-  // Debounced API event recorder
+  // Debounced API event recorder (persistent in PostgreSQL)
   const logProctoringEvent = useCallback(
     async (eventType: ProctoringEventType, metadata?: any) => {
       if (!attemptId || !isActive) return;
@@ -39,7 +51,7 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
       lastEventTimeRef.current[eventType] = now;
 
       try {
-        await ApiClient.request(`/attempts/${attemptId}/proctoring-events`, {
+        const response = await ApiClient.request(`/attempts/${attemptId}/proctoring-events`, {
           method: 'POST',
           body: JSON.stringify({
             eventType,
@@ -50,6 +62,18 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
             },
           }),
         });
+        
+        if (response.success && response.data) {
+          if (response.data.violationCount !== undefined) {
+            setViolationCount(response.data.violationCount);
+          }
+          if (response.data.maxViolations !== undefined) {
+            setMaxViolations(response.data.maxViolations);
+          }
+          if (response.data.autoSubmitted && onAutoSubmit) {
+            onAutoSubmit();
+          }
+        }
       } catch (err) {
         // Non-blocking background log
       }
@@ -57,30 +81,68 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
     [attemptId, isActive]
   );
 
+  const dismissViolation = useCallback((id: string) => {
+    setActiveViolations((prev) => prev.filter((v) => v.id !== id));
+    if (toastTimersRef.current[id]) {
+      clearTimeout(toastTimersRef.current[id]);
+      delete toastTimersRef.current[id];
+    }
+  }, []);
+
   const handleViolation = useCallback(
     (eventType: ProctoringEventType, warningMessage: string, metadata?: any) => {
-      setLatestWarning(warningMessage);
+      // 1. Dispatch persistent backend log
+      logProctoringEvent(eventType, metadata);
+
+      // 2. Notify optional callback
       if (onViolation) {
         onViolation(eventType, warningMessage);
       }
-      logProctoringEvent(eventType, metadata);
+
+      // 3. Create independent temporary UI notification (~7s lifespan)
+      const toastId = `${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const toast: ActiveViolationToast = {
+        id: toastId,
+        eventType,
+        message: warningMessage,
+        timestamp: Date.now(),
+      };
+
+      setLatestWarning(warningMessage);
+      setActiveViolations((prev) => [...prev, toast]);
+
+      // Schedule auto-dismiss in 7 seconds (independent per toast)
+      toastTimersRef.current[toastId] = setTimeout(() => {
+        setActiveViolations((prev) => prev.filter((v) => v.id !== toastId));
+        setLatestWarning((prev) => (prev === warningMessage ? null : prev));
+        delete toastTimersRef.current[toastId];
+      }, 7000);
     },
     [logProctoringEvent, onViolation]
   );
 
   // Fullscreen helper launcher
-  const requestFullscreen = useCallback(() => {
+  const requestFullscreen = useCallback(async (): Promise<boolean> => {
     try {
       const elem = document.documentElement;
       if (elem.requestFullscreen) {
-        elem.requestFullscreen();
+        await elem.requestFullscreen();
       } else if ((elem as any).webkitRequestFullscreen) {
-        (elem as any).webkitRequestFullscreen();
+        await (elem as any).webkitRequestFullscreen();
       } else if ((elem as any).msRequestFullscreen) {
-        (elem as any).msRequestFullscreen();
+        await (elem as any).msRequestFullscreen();
       }
+      const isFull = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFull);
+      wasFullscreenRef.current = isFull;
+      return isFull;
     } catch (err) {
       console.warn('Fullscreen request failed:', err);
+      return false;
     }
   }, []);
 
@@ -89,11 +151,20 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
       return;
     }
 
+    // Initialize fullscreen state
+    const initialFull = !!(
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).msFullscreenElement
+    );
+    setIsFullscreen(initialFull);
+    wasFullscreenRef.current = initialFull;
+
     // 1. Tab Switching & Visibility Change
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setTabSwitchCount((prev) => prev + 1);
-        handleViolation('TAB_SWITCH', 'Warning: Leaving the exam tab is recorded as a proctoring violation.', {
+        handleViolation('TAB_SWITCH', 'Tab switch detected. This event has been recorded.', {
           hidden: true,
         });
       }
@@ -101,7 +172,7 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
 
     // 2. Window Blur & Focus
     const handleWindowBlur = () => {
-      handleViolation('WINDOW_BLUR', 'Warning: Focus lost from examination window.', {
+      handleViolation('WINDOW_BLUR', 'Focus lost from examination window. This event has been recorded.', {
         focused: false,
       });
     };
@@ -125,7 +196,7 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
     // 4. Context Menu / Right-click
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      handleViolation('CONTEXT_MENU', 'Right-click context menu is disabled during the examination.');
+      handleViolation('CONTEXT_MENU', 'Right-click context menu is restricted during the examination.');
     };
 
     // 5. Restricted Keyboard Shortcuts
@@ -157,7 +228,7 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
       setIsFullscreen(isFull);
 
       if (wasFullscreenRef.current && !isFull) {
-        handleViolation('FULLSCREEN_EXIT', 'Warning: Fullscreen mode was exited during the examination.');
+        handleViolation('FULLSCREEN_EXIT', 'Fullscreen exited. Examination must be taken in fullscreen mode.');
       }
       wasFullscreenRef.current = isFull;
     };
@@ -173,7 +244,7 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
-    // CLEANUP MANDATORY: Remove ALL listeners when unmounting or leaving exam
+    // CLEANUP MANDATORY: Remove ALL listeners and clear toast timers on unmount
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
@@ -184,6 +255,10 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+      // Clear all active toast timers
+      Object.values(toastTimersRef.current).forEach((t) => clearTimeout(t));
+      toastTimersRef.current = {};
     };
   }, [isActive, attemptId, handleViolation]);
 
@@ -191,6 +266,10 @@ export function useBrowserProctoring({ attemptId, isActive, onViolation }: UseBr
     tabSwitchCount,
     isFullscreen,
     latestWarning,
+    activeViolations,
+    dismissViolation,
+    violationCount,
+    maxViolations,
     requestFullscreen,
   };
 }

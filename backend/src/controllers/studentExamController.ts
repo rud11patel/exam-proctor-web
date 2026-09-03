@@ -3,6 +3,7 @@ import { ExamRepository } from '../repositories/examRepository';
 import { AttemptRepository } from '../repositories/attemptRepository';
 import { ProctoringRepository } from '../repositories/proctoringRepository';
 import { ApiResponseBuilder } from '../utils/apiResponse';
+import { MAX_EXAM_VIOLATIONS } from '../config/proctoring';
 
 export async function getStudentExams(req: Request, res: Response) {
   const studentId = req.user!.id;
@@ -12,13 +13,16 @@ export async function getStudentExams(req: Request, res: Response) {
 
 export async function getStudentExamDetail(req: Request, res: Response) {
   const { id } = req.params;
+  const studentId = req.user!.id;
   const exam = await ExamRepository.getExamById(id);
 
   if (!exam) {
     return ApiResponseBuilder.error(res, 'Exam not found', 'NOT_FOUND', 404);
   }
 
-  return ApiResponseBuilder.success(res, { exam });
+  const stats = await ExamRepository.getStudentExamStats(id, studentId);
+
+  return ApiResponseBuilder.success(res, { exam, stats });
 }
 
 export async function startAttempt(req: Request, res: Response) {
@@ -124,8 +128,32 @@ export async function recordProctoringEvent(req: Request, res: Response) {
       return ApiResponseBuilder.error(res, 'You are not authorized to log proctoring events for this attempt', 'FORBIDDEN', 403);
     }
 
-    const event = await ProctoringRepository.recordEvent(attemptId, user.id, eventType, metadata);
-    return ApiResponseBuilder.success(res, { event }, 201);
+    const { event, violationCount, isAlreadySubmitted } = await ProctoringRepository.recordEventWithThreshold(attemptId, user.id, eventType, metadata);
+
+    if (isAlreadySubmitted) {
+      return ApiResponseBuilder.success(res, { 
+        event: null, 
+        violationCount,
+        maxViolations: MAX_EXAM_VIOLATIONS,
+        remainingViolations: 0,
+        autoSubmitted: true 
+      });
+    }
+
+    let autoSubmitted = false;
+    if (violationCount >= MAX_EXAM_VIOLATIONS) {
+      // Threshold reached, trigger auto-submission
+      await AttemptRepository.submitAttempt(attemptId, user.id);
+      autoSubmitted = true;
+    }
+
+    return ApiResponseBuilder.success(res, { 
+      event, 
+      violationCount, 
+      maxViolations: MAX_EXAM_VIOLATIONS,
+      remainingViolations: Math.max(0, MAX_EXAM_VIOLATIONS - violationCount),
+      autoSubmitted
+    }, 201);
   } catch (error: any) {
     return ApiResponseBuilder.error(res, error.message || 'Failed to record proctoring event', 'PROCTORING_ERROR', 400);
   }

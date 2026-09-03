@@ -29,24 +29,25 @@ export class AttemptRepository {
       if (examRes.rows.length === 0) throw new Error('Exam not found');
       const exam = examRes.rows[0];
 
-      // 2. Check if student already has an active attempt
-      const existingRes = await client.query<ExamAttemptDb>(
-        'SELECT * FROM exam_attempts WHERE exam_id = $1 AND student_id = $2 ORDER BY attempt_number DESC LIMIT 1',
+      // 2. Check if student already has an active attempt or has reached maximum attempts
+      const allAttemptsRes = await client.query<ExamAttemptDb>(
+        'SELECT * FROM exam_attempts WHERE exam_id = $1 AND student_id = $2 ORDER BY attempt_number ASC',
         [examId, studentId]
       );
-      if (existingRes.rows.length > 0) {
-        const last = existingRes.rows[0];
-        if (last.status === 'IN_PROGRESS') {
-          await client.query('COMMIT');
-          return last; // Resume active attempt
-        }
-        if (last.attempt_number >= exam.maximum_attempts) {
-          throw new Error('Maximum attempt limit reached for this examination');
-        }
+
+      const activeAttempt = allAttemptsRes.rows.find((a) => a.status === 'IN_PROGRESS');
+      if (activeAttempt) {
+        await client.query('COMMIT');
+        return activeAttempt; // Resume active in-progress attempt
+      }
+
+      const totalAttemptsStarted = allAttemptsRes.rows.length;
+      if (totalAttemptsStarted >= exam.maximum_attempts) {
+        throw new Error('Maximum attempt limit reached for this examination');
       }
 
       // 3. Create new attempt with authoritative server_end_time
-      const nextAttemptNum = existingRes.rows.length + 1;
+      const nextAttemptNum = totalAttemptsStarted + 1;
       const attemptRes = await client.query<ExamAttemptDb>(
         `INSERT INTO exam_attempts (exam_id, student_id, attempt_number, started_at, server_end_time, status)
          VALUES ($1, $2, $3, NOW(), NOW() + ($4 || ' minutes')::interval, 'IN_PROGRESS')

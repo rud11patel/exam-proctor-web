@@ -138,22 +138,112 @@ export class ExamRepository {
 
   static async getExamsForStudent(studentId: string): Promise<any[]> {
     const query = `
-      SELECT e.*,
-             (SELECT COUNT(*) FROM exam_questions eq WHERE eq.exam_id = e.id) as total_questions,
-             ea.assigned_at,
-             att.id as attempt_id,
-             att.status as attempt_status,
-             att.total_score,
-             att.percentage,
-             att.is_passed
+      SELECT 
+        e.*,
+        (SELECT COUNT(*) FROM exam_questions eq WHERE eq.exam_id = e.id) as total_questions,
+        ea.assigned_at,
+        COALESCE(att_stats.attempt_count, 0)::integer as attempt_count,
+        COALESCE(att_stats.completed_count, 0)::integer as completed_count,
+        GREATEST(0, e.maximum_attempts - COALESCE(att_stats.attempt_count, 0))::integer as remaining_attempts,
+        in_prog.id as in_progress_attempt_id,
+        best_att.best_score,
+        best_att.best_percentage
       FROM exams e
       JOIN exam_assignments ea ON e.id = ea.exam_id
-      LEFT JOIN exam_attempts att ON e.id = att.exam_id AND att.student_id = $1
-      WHERE ea.student_id = $1 AND e.status IN ('PUBLISHED', 'ACTIVE')
+      LEFT JOIN LATERAL (
+        SELECT 
+          COUNT(*) as attempt_count,
+          COUNT(*) FILTER (WHERE status = 'SUBMITTED') as completed_count
+        FROM exam_attempts 
+        WHERE exam_id = e.id AND student_id = $1
+      ) att_stats ON true
+      LEFT JOIN LATERAL (
+        SELECT id FROM exam_attempts 
+        WHERE exam_id = e.id AND student_id = $1 AND status = 'IN_PROGRESS' 
+        ORDER BY started_at DESC LIMIT 1
+      ) in_prog ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(total_score) as best_score, MAX(percentage) as best_percentage
+        FROM exam_attempts
+        WHERE exam_id = e.id AND student_id = $1 AND status = 'SUBMITTED'
+      ) best_att ON true
+      WHERE ea.student_id = $1 
+        AND e.status IN ('PUBLISHED', 'ACTIVE')
+        AND (
+          -- Student has remaining attempts to start
+          (e.maximum_attempts - COALESCE(att_stats.attempt_count, 0)) > 0
+          OR
+          -- Or student has an active attempt in progress to resume
+          in_prog.id IS NOT NULL
+        )
       ORDER BY e.created_at DESC
     `;
     const result = await pool.query(query, [studentId]);
     return result.rows;
+  }
+
+  static async getStudentExamStats(examId: string, studentId: string): Promise<{
+    attemptCount: number;
+    completedCount: number;
+    remainingAttempts: number;
+    activeAttemptId: string | null;
+    bestScore: number | null;
+    canStartAttempt: boolean;
+  }> {
+    const query = `
+      SELECT 
+        e.maximum_attempts,
+        COALESCE(att_stats.attempt_count, 0)::integer as attempt_count,
+        COALESCE(att_stats.completed_count, 0)::integer as completed_count,
+        in_prog.id as in_progress_attempt_id,
+        best_att.best_score
+      FROM exams e
+      LEFT JOIN LATERAL (
+        SELECT 
+          COUNT(*) as attempt_count,
+          COUNT(*) FILTER (WHERE status = 'SUBMITTED') as completed_count
+        FROM exam_attempts 
+        WHERE exam_id = e.id AND student_id = $2
+      ) att_stats ON true
+      LEFT JOIN LATERAL (
+        SELECT id FROM exam_attempts 
+        WHERE exam_id = e.id AND student_id = $2 AND status = 'IN_PROGRESS' 
+        ORDER BY started_at DESC LIMIT 1
+      ) in_prog ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(total_score) as best_score
+        FROM exam_attempts
+        WHERE exam_id = e.id AND student_id = $2 AND status = 'SUBMITTED'
+      ) best_att ON true
+      WHERE e.id = $1
+    `;
+    const res = await pool.query(query, [examId, studentId]);
+    if (res.rows.length === 0) {
+      return {
+        attemptCount: 0,
+        completedCount: 0,
+        remainingAttempts: 0,
+        activeAttemptId: null,
+        bestScore: null,
+        canStartAttempt: false,
+      };
+    }
+    const row = res.rows[0];
+    const attemptCount = parseInt(row.attempt_count, 10);
+    const completedCount = parseInt(row.completed_count, 10);
+    const maxAttempts = parseInt(row.maximum_attempts, 10);
+    const remainingAttempts = Math.max(0, maxAttempts - attemptCount);
+    const activeAttemptId = row.in_progress_attempt_id || null;
+    const canStartAttempt = remainingAttempts > 0 || activeAttemptId !== null;
+
+    return {
+      attemptCount,
+      completedCount,
+      remainingAttempts,
+      activeAttemptId,
+      bestScore: row.best_score !== null ? parseFloat(row.best_score) : null,
+      canStartAttempt,
+    };
   }
 
   static async getExamById(id: string): Promise<ExamDb | null> {

@@ -45,6 +45,11 @@ export const StudentDashboard: React.FC = () => {
                 <BookOpen className="w-3.5 h-3.5 text-sky-400" /> My Exams
               </Button>
             </Link>
+            <Link to="/student/results">
+              <Button size="sm" variant="outline" className="gap-1 text-xs">
+                <Award className="w-3.5 h-3.5 text-emerald-400" /> Results
+              </Button>
+            </Link>
             <Button size="sm" variant="ghost" onClick={logout} className="gap-1 text-xs text-rose-400">
               <LogOut className="w-3.5 h-3.5" /> Logout
             </Button>
@@ -91,7 +96,7 @@ export const StudentDashboard: React.FC = () => {
             </Card>
           </Link>
 
-          <Link to="/student/exams">
+          <Link to="/student/results">
             <Card className="glass-card p-6 rounded-2xl space-y-2 hover:border-emerald-500/40">
               <Award className="w-6 h-6 text-emerald-400" />
               <h3 className="font-bold text-white text-base">Results & Grade Analytics</h3>

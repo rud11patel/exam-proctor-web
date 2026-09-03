@@ -57,6 +57,44 @@ export interface Exam {
   endTime: string;   // ISO date string
   createdBy: string;
   createdAt: string;
+  status?: string;
+  duration?: number;
+  assignedStudentsCount?: number;
+  attemptCount?: number;
+  completedCount?: number;
+  remainingAttempts?: number;
+  inProgressAttemptId?: string | null;
+  bestScore?: number | null;
+  schedule?: {
+    startTime: string;
+    endTime: string;
+  };
+}
+
+export interface ExamResult {
+  id: string;
+  attemptId: string;
+  examId: string;
+  examTitle: string;
+  examSubject?: string;
+  studentId: string;
+  studentName?: string;
+  totalScore: number;
+  maxScore: number;
+  percentage: number;
+  isPassed: boolean;
+  passingMarks?: number;
+  duration?: number;
+  correctAnswers?: number;
+  incorrectAnswers?: number;
+  unanswered?: number;
+  proctoringScore?: number;
+  proctoringFlagsCount?: number;
+  submittedAt?: string;
+  attemptNumber?: number;
+  totalAttempts?: number;
+  maxAttempts?: number;
+  remainingAttempts?: number;
 }
 
 export interface AnswerState {

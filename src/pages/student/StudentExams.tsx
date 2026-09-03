@@ -38,12 +38,19 @@ export const StudentExams: React.FC = () => {
             </Button>
           </Link>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Assigned Examinations</h1>
-          <p className="text-slate-400 text-xs sm:text-sm">Official proctored examinations assigned to your candidate profile.</p>
+          <p className="text-slate-400 text-xs sm:text-sm">Exams available for you to attempt or resume.</p>
         </div>
 
-        <Button variant="outline" size="sm" onClick={loadExams} className="gap-1.5 text-xs">
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Roster
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link to="/student/results">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs text-emerald-400 border-emerald-500/30 hover:bg-emerald-950/30">
+              <Award className="w-3.5 h-3.5" /> Results & Analytics
+            </Button>
+          </Link>
+          <Button variant="outline" size="sm" onClick={loadExams} className="gap-1.5 text-xs">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Roster
+          </Button>
+        </div>
       </div>
 
       {/* List */}
@@ -54,45 +61,80 @@ export const StudentExams: React.FC = () => {
             <span>Loading assigned examinations from backend...</span>
           </div>
         ) : exams.length === 0 ? (
-          <Card className="glass-card p-12 text-center text-slate-400 space-y-3">
-            <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
-            <h3 className="text-base font-bold text-white">No assigned exams found</h3>
-            <p className="text-xs">Assigned examinations will appear here automatically.</p>
+          <Card className="glass-card p-12 text-center text-slate-400 space-y-4">
+            <BookOpen className="w-12 h-12 text-slate-600 mx-auto" />
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white">No exams currently available to attempt</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                You have exhausted all allowed attempts for your assigned tests, or no new assessments are scheduled. Check your completed evaluations in Results & Analytics.
+              </p>
+            </div>
+            <Link to="/student/results">
+              <Button variant="glow" size="sm" className="gap-1.5">
+                <Award className="w-4 h-4" /> View Results & Analytics
+              </Button>
+            </Link>
           </Card>
         ) : (
-          exams.map((exam) => (
-            <Card key={exam.id} className="glass-card p-6 rounded-2xl border-slate-800 space-y-4">
-              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-2xl">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="glow">{exam.subject}</Badge>
-                    <Badge variant={exam.status === 'completed' ? 'secondary' : 'success'}>
-                      {exam.status === 'completed' ? 'COMPLETED' : 'TEST WINDOW OPEN'}
-                    </Badge>
+          exams.map((exam) => {
+            const hasActiveAttempt = !!exam.inProgressAttemptId;
+            const attemptsLeft = exam.remainingAttempts ?? exam.maxAttempts;
+
+            return (
+              <Card key={exam.id} className="glass-card p-6 rounded-2xl border-slate-800 space-y-4 hover:border-slate-700 transition-colors">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="glow">{exam.subject}</Badge>
+                      {hasActiveAttempt ? (
+                        <Badge variant="destructive" className="animate-pulse">
+                          ATTEMPT IN PROGRESS
+                        </Badge>
+                      ) : (
+                        <Badge variant="success">TEST WINDOW OPEN</Badge>
+                      )}
+                      <Badge variant="outline" className="font-mono text-xs">
+                        ATTEMPTS LEFT: {attemptsLeft} / {exam.maxAttempts}
+                      </Badge>
+                      {exam.bestScore !== null && exam.bestScore !== undefined && (
+                        <span className="text-xs font-mono text-emerald-400">
+                          Best Score: {exam.bestScore}/{exam.totalMarks}
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="text-xl font-bold text-white">{exam.title}</h3>
+                    <p className="text-xs text-slate-300 line-clamp-2">{exam.description || 'No description provided.'}</p>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono text-slate-400 pt-1">
+                      <div>Total Marks: <span className="text-slate-200">{exam.totalMarks}</span></div>
+                      <div>Duration: <span className="text-slate-200">{exam.duration} Mins</span></div>
+                      <div>Pass Score: <span className="text-slate-200">{exam.passingMarks}</span></div>
+                      <div>Attempts Used: <span className="text-slate-200">{exam.attemptCount ?? 0}</span></div>
+                    </div>
                   </div>
 
-                  <h3 className="text-xl font-bold text-white">{exam.title}</h3>
-                  <p className="text-xs text-slate-300 line-clamp-2">{exam.description}</p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono text-slate-400 pt-1">
-                    <div>Total Marks: <span className="text-slate-200">{exam.totalMarks}</span></div>
-                    <div>Duration: <span className="text-slate-200">{exam.duration} Mins</span></div>
-                    <div>Pass Score: <span className="text-slate-200">{exam.passingMarks}</span></div>
-                    <div>Max Attempts: <span className="text-slate-200">{exam.maxAttempts}</span></div>
+                  <div className="shrink-0 self-end lg:self-auto flex items-center gap-2">
+                    {hasActiveAttempt ? (
+                      <Link to={`/student/runner/${exam.inProgressAttemptId}`}>
+                        <Button variant="danger" size="sm" className="gap-1.5 text-xs animate-pulse">
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          Resume Active Exam
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Link to={`/student/exams/${exam.id}`}>
+                        <Button variant="glow" size="sm" className="gap-1.5 text-xs">
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          Start Exam Attempt
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                 </div>
-
-                <div className="shrink-0 self-end lg:self-auto">
-                  <Link to={`/student/exams/${exam.id}`}>
-                    <Button variant="glow" size="sm" className="gap-1.5 text-xs">
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      View Exam Details & Start
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            </Card>
-          ))
+              </Card>
+            );
+          })
         )}
       </div>
     </div>

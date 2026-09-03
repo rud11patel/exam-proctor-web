@@ -15,6 +15,7 @@ export const StudentExamDetail: React.FC = () => {
   const { user } = useAuth();
 
   const [exam, setExam] = useState<Exam | undefined>(undefined);
+  const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -25,9 +26,10 @@ export const StudentExamDetail: React.FC = () => {
       setIsLoading(true);
       setErrorMsg(null);
       try {
-        const e = await examService.getExamById(examId);
-        if (e) {
-          setExam(e);
+        const detail = await examService.getStudentExamDetail(examId);
+        if (detail && detail.exam) {
+          setExam(detail.exam);
+          setStats(detail.stats || null);
         } else {
           setErrorMsg('Examination not found');
         }
@@ -40,10 +42,41 @@ export const StudentExamDetail: React.FC = () => {
     loadDetail();
   }, [examId]);
 
+  const requestBrowserFullscreen = async (): Promise<boolean> => {
+    try {
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) {
+        await elem.requestFullscreen();
+      } else if ((elem as any).webkitRequestFullscreen) {
+        await (elem as any).webkitRequestFullscreen();
+      } else if ((elem as any).msRequestFullscreen) {
+        await (elem as any).msRequestFullscreen();
+      }
+      return !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).msFullscreenElement
+      );
+    } catch (err) {
+      console.warn('Fullscreen request denied or not supported:', err);
+      return false;
+    }
+  };
+
   const handleStartExam = async () => {
     if (!exam || !user) return;
     setIsStarting(true);
     setErrorMsg(null);
+
+    // 1. Mandatory Fullscreen Enforcement
+    const fullscreenSuccess = await requestBrowserFullscreen();
+    if (!fullscreenSuccess) {
+      setIsStarting(false);
+      setErrorMsg(
+        'Fullscreen mode is required to take this proctored examination. Please grant fullscreen permissions and try again.'
+      );
+      return;
+    }
 
     try {
       const attemptId = await examEngineService.startExamAttempt(exam.id);
@@ -151,21 +184,76 @@ export const StudentExamDetail: React.FC = () => {
         <div className="lg:col-span-4 space-y-6">
           <Card className="glass-panel-glow border-sky-500/40 p-6 rounded-2xl space-y-6">
             <div className="space-y-2">
-              <div className="text-xs font-mono text-slate-400">TEST WINDOW STATUS</div>
+              <div className="text-xs font-mono text-slate-400">TEST WINDOW & ATTEMPT STATUS</div>
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-sky-400" />
                 <span className="text-lg font-bold text-white">{exam.duration} Minutes</span>
               </div>
+              <div className="text-xs font-mono text-slate-300 pt-1">
+                Attempts Remaining:{' '}
+                <span className="text-sky-400 font-bold">
+                  {stats ? stats.remainingAttempts : (exam.remainingAttempts ?? exam.maxAttempts)} / {exam.maxAttempts}
+                </span>
+              </div>
+              {stats?.bestScore !== null && stats?.bestScore !== undefined && (
+                <div className="text-xs font-mono text-emerald-400">
+                  Best Completed Score: {stats.bestScore} / {exam.totalMarks}
+                </div>
+              )}
             </div>
 
             <div className="space-y-3 pt-2">
-              <Badge variant="success" className="w-full justify-center py-1">
-                ELIGIBILITY VERIFIED — READY TO START
-              </Badge>
-              <Button size="lg" variant="glow" onClick={handleStartExam} isLoading={isStarting} className="w-full justify-center gap-2">
-                <Play className="w-4 h-4 fill-white" />
-                Start Examination Now
-              </Button>
+              {stats?.activeAttemptId || exam.inProgressAttemptId ? (
+                <>
+                  <Badge variant="destructive" className="w-full justify-center py-1 animate-pulse">
+                    UNFINISHED ATTEMPT IN PROGRESS
+                  </Badge>
+                  <Button
+                    size="lg"
+                    variant="danger"
+                    onClick={async () => {
+                      const fs = await requestBrowserFullscreen();
+                      if (!fs) {
+                        setErrorMsg('Fullscreen mode is required to resume your exam. Please allow fullscreen permission.');
+                        return;
+                      }
+                      navigate(`/student/runner/${stats?.activeAttemptId || exam.inProgressAttemptId}`);
+                    }}
+                    className="w-full justify-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    Enter Fullscreen & Resume Exam
+                  </Button>
+                </>
+              ) : (stats?.remainingAttempts === 0 || exam.remainingAttempts === 0) ? (
+                <>
+                  <Badge variant="outline" className="w-full justify-center py-1 text-slate-400">
+                    ALL ATTEMPTS EXHAUSTED
+                  </Badge>
+                  <Link to="/student/results">
+                    <Button size="lg" variant="glow" className="w-full justify-center gap-2">
+                      <Award className="w-4 h-4" />
+                      View Results & Analytics
+                    </Button>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Badge variant="success" className="w-full justify-center py-1">
+                    ELIGIBILITY VERIFIED — READY TO START
+                  </Badge>
+                  <Button
+                    size="lg"
+                    variant="glow"
+                    onClick={handleStartExam}
+                    isLoading={isStarting}
+                    className="w-full justify-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    Enter Fullscreen & Start Exam
+                  </Button>
+                </>
+              )}
             </div>
           </Card>
         </div>
